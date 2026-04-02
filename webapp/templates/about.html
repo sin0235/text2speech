@@ -59,7 +59,7 @@
 
   <div class="stack-list mono-list">
     <div class="stack-row"><code>GET /api/tts/status</code> trả trạng thái sẵn sàng của F5-TTS và ViRa.</div>
-    <div class="stack-row"><code>POST /api/tts/generate</code> nhận <code>multipart/form-data</code> gồm text, engine, reference_audio, reference_text, speed, seed.</div>
+    <div class="stack-row"><code>POST /api/tts/generate</code> nhận <code>multipart/form-data</code> gồm text, engine, model_key, custom_model, reference_audio, reference_text, speed, seed.</div>
     <div class="stack-row"><code>GET /outputs/&lt;filename&gt;</code> phát trực tiếp file WAV đã sinh.</div>
   </div>
 </div>
@@ -75,8 +75,10 @@
   <div class="engine-metadata">
     <div class="metadata-line"><span>TTS_DEFAULT_ENGINE</span><strong>Engine mặc định: `vira` hoặc `f5`</strong></div>
     <div class="metadata-line"><span>VIRA_MODEL_PATH</span><strong>Thư mục local chứa model ViRa</strong></div>
+    <div class="metadata-line"><span>VIRA_MODEL_CHOICES</span><strong>Danh sách preset model ViRa hiển thị thêm trên UI</strong></div>
     <div class="metadata-line"><span>VIRA_AUTO_DOWNLOAD</span><strong>Bật auto-download model từ Hugging Face</strong></div>
     <div class="metadata-line"><span>F5_MODEL_NAME</span><strong>Tên model F5-TTS cần load</strong></div>
+    <div class="metadata-line"><span>F5_MODEL_CHOICES</span><strong>Danh sách preset model F5 hiển thị thêm trên UI</strong></div>
     <div class="metadata-line"><span>F5_CKPT_FILE</span><strong>Checkpoint tùy chỉnh cho F5-TTS</strong></div>
     <div class="metadata-line"><span>F5_VOCAB_FILE</span><strong>Vocab file nếu checkpoint yêu cầu</strong></div>
   </div>

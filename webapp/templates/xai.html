@@ -53,17 +53,18 @@
         {% endfor %}
       </div>
     </div>
-
-    <!-- Loading overlay -->
-    <div id="loadingOverlay" class="loading-overlay" style="display: none">
-      <div class="loading-content">
-        <div class="loading-spinner"></div>
-        <div class="loading-text">Đang phân tích XAI...</div>
-        <div class="loading-subtext">LIME cần chạy nhiều lần perturbation, xin chờ chút...</div>
-      </div>
-    </div>
   </form>
 </div>
+
+<!-- Loading overlay (outside card to avoid overflow:hidden clipping) -->
+<div id="loadingOverlay" class="loading-overlay" style="display: none">
+  <div class="loading-content">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Đang phân tích XAI...</div>
+    <div class="loading-subtext">LIME cần chạy nhiều lần perturbation, xin chờ chút...</div>
+  </div>
+</div>
+
 
 {% if xai_result and xai_result.ok %}
 

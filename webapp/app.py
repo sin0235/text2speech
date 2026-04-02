@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+from dataclasses import asdict
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
@@ -74,6 +75,7 @@ def home():
         examples=TEXT_EXAMPLES,
         reference_tips=REFERENCE_TIPS,
         default_engine_id=_pick_default_engine(context["engine_cards"]),
+        engine_cards_payload=[asdict(card) for card in context["engine_cards"]],
     )
     return render_template("home.html", **context)
 
@@ -119,6 +121,8 @@ def api_tts_generate():
     upload = request.files.get("reference_audio")
     text = (request.form.get("text") or "").strip()
     engine_id = (request.form.get("engine") or studio.default_engine).strip().lower()
+    model_key = (request.form.get("model_key") or "default").strip() or "default"
+    custom_model = (request.form.get("custom_model") or "").strip()
     reference_text = (request.form.get("reference_text") or "").strip()
     remove_silence = (request.form.get("remove_silence") or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -160,6 +164,8 @@ def api_tts_generate():
             speed=speed,
             remove_silence=remove_silence,
             seed=seed,
+            model_key=model_key,
+            custom_model=custom_model,
         )
     except TTSError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 422
@@ -172,6 +178,8 @@ def api_tts_generate():
             "ok": True,
             "engine": result.engine_id,
             "engine_label": result.engine_label,
+            "model_key": result.model_key,
+            "model_label": result.model_label,
             "audio_url": audio_url,
             "download_name": result.output_path.name,
             "sample_rate": result.sample_rate,

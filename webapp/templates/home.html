@@ -103,6 +103,24 @@
       </div>
 
       <div class="form-group">
+        <label for="modelSelect">Chọn model</label>
+        <select id="modelSelect" name="model_key" class="form-control"></select>
+        <input
+          id="customModelInput"
+          name="custom_model"
+          type="text"
+          class="form-control compact-input hidden"
+          placeholder="Nhập model tùy chỉnh"
+          autocomplete="off"
+          disabled
+        />
+        <div class="field-meta">
+          <span id="modelHintPrimary">Chọn model theo engine đang bật.</span>
+          <span id="modelHintSecondary"></span>
+        </div>
+      </div>
+
+      <div class="form-group">
         <label for="referenceText">
           <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8M8 14h4M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -206,14 +224,15 @@
     </div>
   </form>
 
-  <div id="loadingOverlay" class="loading-overlay" style="display:none">
-    <div class="loading-content">
-      <div class="loading-spinner"></div>
-      <div class="loading-text">Đang sinh giọng nói</div>
-      <div class="loading-subtext">Model đang encode giọng mẫu và render audio đầu ra.</div>
-    </div>
-  </div>
 </section>
+
+<div id="loadingOverlay" class="loading-overlay" style="display:none">
+  <div class="loading-content">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Đang sinh giọng nói</div>
+    <div class="loading-subtext">Model đang encode giọng mẫu và render audio đầu ra.</div>
+  </div>
+</div>
 
 <section class="result-grid">
   <div class="card">
@@ -269,6 +288,7 @@
 <script>
   let latestAudioUrl = '';
   let latestAudioName = '';
+  const ENGINE_CONFIG = {{ engine_cards_payload|tojson }};
 
   const textInput = document.getElementById('textInput');
   const textCount = document.getElementById('textCount');
@@ -276,6 +296,58 @@
   const speedValue = document.getElementById('speedValue');
   const referenceAudio = document.getElementById('referenceAudio');
   const uploadFileLabel = document.getElementById('uploadFileLabel');
+  const modelSelect = document.getElementById('modelSelect');
+  const customModelInput = document.getElementById('customModelInput');
+  const modelHintPrimary = document.getElementById('modelHintPrimary');
+  const modelHintSecondary = document.getElementById('modelHintSecondary');
+  const engineConfigMap = Object.fromEntries(ENGINE_CONFIG.map((card) => [card.id, card]));
+
+  function getSelectedEngine() {
+    const selected = document.querySelector('input[name="engine"]:checked');
+    return selected ? selected.value : '{{ default_engine_id }}';
+  }
+
+  function syncModelUi() {
+    const engineId = getSelectedEngine();
+    const selection = (((engineConfigMap[engineId] || {}).metadata || {}).model_selection) || {};
+    const showCustom = modelSelect.value === '__custom__';
+
+    customModelInput.classList.toggle('hidden', !showCustom);
+    customModelInput.disabled = !showCustom;
+    customModelInput.placeholder = selection.custom_placeholder || 'Nhập model tùy chỉnh';
+    if (!showCustom) {
+      customModelInput.value = '';
+    }
+
+    modelHintPrimary.textContent = selection.help_primary || 'Chọn model theo engine đang bật.';
+    modelHintSecondary.textContent = selection.help_secondary || '';
+  }
+
+  function syncModelOptions(preserveCurrent = true) {
+    const engineId = getSelectedEngine();
+    const selection = (((engineConfigMap[engineId] || {}).metadata || {}).model_selection) || {};
+    const options = selection.options || [];
+    const previousValue = preserveCurrent ? modelSelect.value : '';
+
+    modelSelect.innerHTML = '';
+    options.forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.key;
+      option.textContent = item.label;
+      modelSelect.appendChild(option);
+    });
+
+    if (selection.allow_custom) {
+      const customOption = document.createElement('option');
+      customOption.value = '__custom__';
+      customOption.textContent = 'Custom...';
+      modelSelect.appendChild(customOption);
+    }
+
+    const canReuse = Array.from(modelSelect.options).some((option) => option.value === previousValue);
+    modelSelect.value = canReuse ? previousValue : (selection.default_key || 'default');
+    syncModelUi();
+  }
 
   function updateCount() {
     textCount.textContent = `${textInput.value.trim().length} ký tự`;
@@ -296,6 +368,7 @@
     uploadFileLabel.textContent = 'Chưa có file nào được chọn';
     updateCount();
     updateSpeed();
+    syncModelOptions(false);
   }
 
   async function copyAudioUrl() {
@@ -325,13 +398,14 @@
 
     const item = document.createElement('div');
     item.className = 'history-item';
+    const modelMeta = payload.model_label ? ` · ${payload.model_label}` : '';
     item.innerHTML = `
       <div class="history-top">
         <strong>${payload.engine_label}</strong>
         <span>${payload.duration_seconds.toFixed(2)}s</span>
       </div>
       <div class="history-file">${payload.download_name}</div>
-      <div class="history-meta">${payload.sample_rate} Hz · ${payload.chunk_count} chunk</div>
+      <div class="history-meta">${payload.sample_rate} Hz · ${payload.chunk_count} chunk${modelMeta}</div>
       <audio controls class="history-player" src="${payload.audio_url}"></audio>
     `;
     history.prepend(item);
@@ -344,13 +418,16 @@
   function renderResult(payload) {
     document.getElementById('resultState').classList.add('hidden');
     document.getElementById('resultCard').classList.remove('hidden');
-    document.getElementById('resultEngineLabel').textContent = payload.engine_label;
+    document.getElementById('resultEngineLabel').textContent = payload.model_label
+      ? `${payload.engine_label} / ${payload.model_label}`
+      : payload.engine_label;
     document.getElementById('resultFilename').textContent = payload.download_name;
     document.getElementById('resultRate').textContent = `${payload.sample_rate} Hz`;
     document.getElementById('resultStats').innerHTML = `
       <div class="result-stat"><span>Thời lượng</span><strong>${payload.duration_seconds.toFixed(2)}s</strong></div>
       <div class="result-stat"><span>Inference</span><strong>${payload.inference_seconds.toFixed(2)}s</strong></div>
       <div class="result-stat"><span>Chunks</span><strong>${payload.chunk_count}</strong></div>
+      <div class="result-stat"><span>Model</span><strong>${payload.model_label || 'Default'}</strong></div>
     `;
     renderNotes(payload.notes);
 
@@ -371,6 +448,12 @@
 
   textInput.addEventListener('input', updateCount);
   speedRange.addEventListener('input', updateSpeed);
+  modelSelect.addEventListener('change', syncModelUi);
+  document.querySelectorAll('input[name="engine"]').forEach((radio) => {
+    radio.addEventListener('change', function () {
+      syncModelOptions(false);
+    });
+  });
   referenceAudio.addEventListener('change', function () {
     const file = this.files && this.files[0];
     uploadFileLabel.textContent = file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : 'Chưa có file nào được chọn';
@@ -416,6 +499,7 @@
 
   updateCount();
   updateSpeed();
+  syncModelOptions(false);
 </script>
 
 {% endblock %}

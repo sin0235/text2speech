@@ -36,6 +36,7 @@ python -m pip install f5-tts
 Biến môi trường hỗ trợ:
 
 - `F5_MODEL_NAME`
+- `F5_MODEL_CHOICES` (danh sách model hiển thị thêm trên UI, ngăn cách bằng `;`, hỗ trợ `label=value`)
 - `F5_CKPT_FILE`
 - `F5_VOCAB_FILE`
 - `F5_VOCODER_LOCAL_PATH`
@@ -50,6 +51,7 @@ Nếu dùng local model:
 
 - đặt model vào `models/vira`
 - hoặc cấu hình `VIRA_MODEL_PATH`
+- có thể thêm nhiều lựa chọn UI bằng `VIRA_MODEL_CHOICES`, ví dụ `Mặc định phụ=path:models/vira-alt;HF beta=repo:owner/repo`
 
 Nếu muốn app tự tải model:
 
@@ -60,7 +62,7 @@ $env:VIRA_AUTO_DOWNLOAD = "1"
 ## API
 
 - `GET /api/tts/status`
-- `POST /api/tts/generate`
+- `POST /api/tts/generate` nhận thêm `model_key` và `custom_model` để chọn model theo từng request
 - `GET /outputs/<filename>`
 
 ## Runtime folders
