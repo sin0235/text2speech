@@ -1,0 +1,831 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<!-- ── Page header (same pattern as home.html) ─────────────────────────── -->
+<div class="page-header">
+  <h1>Google Maps Review Scraper</h1>
+  <p class="subtitle">
+    Nhập link hoặc tìm kiếm địa điểm trên Google Maps để cào reviews,
+    sau đó chạy pipeline <strong>ABSA</strong> phân tích cảm xúc theo khía cạnh.
+  </p>
+</div>
+
+<!-- ── Input form ──────────────────────────────────────────────────────── -->
+<div class="card">
+
+  <!-- Mode toggle -->
+  <div class="scraper-mode-toggle" id="modeToggle">
+    <button type="button" class="scraper-mode-btn active" id="btnModeUrl" onclick="setMode('url')">Nhập URL</button>
+    <button type="button" class="scraper-mode-btn" id="btnModeQuery" onclick="setMode('query')">Tìm kiếm</button>
+  </div>
+
+  <!-- URL panel -->
+  <div id="panelUrl" class="form-group">
+    <label for="inputUrl">
+      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+      </svg>
+      Link Google Maps
+    </label>
+    <input type="url" id="inputUrl" class="form-control" placeholder="https://www.google.com/maps/place/..." autocomplete="off" />
+    <div class="sc-hint">Dán link trực tiếp từ Google Maps (nhấn Chia sẻ &rarr; Sao chép liên kết)</div>
+  </div>
+
+  <!-- Query panel -->
+  <div id="panelQuery" class="form-group sc-hidden">
+    <label for="inputQuery">
+      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8" stroke-width="2"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65" stroke-width="2"/>
+      </svg>
+      Tên địa điểm / nhà hàng
+    </label>
+    <input type="text" id="inputQuery" class="form-control" placeholder="VD: Phở Thìn, Nhà hàng Ngon..." autocomplete="off" />
+    <div style="margin-top:12px">
+      <label for="inputLocation">
+        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        Khu vực
+      </label>
+      <input type="text" id="inputLocation" class="form-control" placeholder="VD: Ho Chi Minh City, Vietnam" autocomplete="off" />
+    </div>
+  </div>
+
+  <!-- Options grid -->
+  <div class="sc-options-grid">
+    <div class="sc-opt-group">
+      <label class="sc-opt-label" for="selMaxReviews">Số lượng review</label>
+      <select id="selMaxReviews" class="form-control sc-select">
+        <option value="10">10</option>
+        <option value="25" selected>25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="200">200</option>
+      </select>
+    </div>
+    <div class="sc-opt-group" id="grpMaxPlaces">
+      <label class="sc-opt-label" for="selMaxPlaces">Số địa điểm</label>
+      <select id="selMaxPlaces" class="form-control sc-select">
+        <option value="1" selected>1</option>
+        <option value="3">3</option>
+        <option value="5">5</option>
+        <option value="10">10</option>
+      </select>
+    </div>
+    <div class="sc-opt-group">
+      <label class="sc-opt-label" for="selLanguage">Ngôn ngữ</label>
+      <select id="selLanguage" class="form-control sc-select">
+        <option value="en">English</option>
+        <option value="vi">Tiếng Việt</option>
+        <option value="all">Tất cả</option>
+      </select>
+    </div>
+    <div class="sc-opt-group">
+      <label class="sc-opt-label" for="selSort">Sắp xếp</label>
+      <select id="selSort" class="form-control sc-select">
+        <option value="newest">Mới nhất</option>
+        <option value="highestRanking">Cao nhất</option>
+        <option value="lowestRanking">Thấp nhất</option>
+        <option value="relevant">Liên quan</option>
+      </select>
+    </div>
+    <div class="sc-opt-group">
+      <label class="sc-opt-label" for="selOrigin">Nguồn review</label>
+      <select id="selOrigin" class="form-control sc-select">
+        <option value="all">Tất cả</option>
+        <option value="googleReviews">Chỉ Google</option>
+      </select>
+    </div>
+    <div class="sc-opt-group" id="grpMatching">
+      <label class="sc-opt-label" for="selMatching">Search matching</label>
+      <select id="selMatching" class="form-control sc-select">
+        <option value="all">All</option>
+        <option value="exact">Exact</option>
+      </select>
+    </div>
+    <div class="sc-opt-group" id="grpMinStars">
+      <label class="sc-opt-label" for="selMinStars">Sao tối thiểu</label>
+      <select id="selMinStars" class="form-control sc-select">
+        <option value="">Không giới hạn</option>
+        <option value="1">1+</option>
+        <option value="2">2+</option>
+        <option value="3">3+</option>
+        <option value="4">4+</option>
+        <option value="5">5</option>
+      </select>
+    </div>
+    <div class="sc-opt-group">
+      <label class="sc-opt-label" for="inputReviewsFilter">Lọc theo từ khóa</label>
+      <input type="text" id="inputReviewsFilter" class="form-control sc-select" placeholder="VD: food, service..." />
+    </div>
+    <div class="sc-opt-group">
+      <label class="sc-opt-label" for="inputStartDate">Review từ ngày</label>
+      <input type="date" id="inputStartDate" class="form-control sc-select" />
+    </div>
+  </div>
+
+  <!-- Toggles -->
+  <div class="sc-toggles-row">
+    <label class="sc-toggle-wrap">
+      <input type="checkbox" id="chkSkipClosed" />
+      <span class="sc-toggle-track"><span class="sc-toggle-thumb"></span></span>
+      <span class="sc-toggle-text">Bỏ qua quán đóng cửa</span>
+    </label>
+    <label class="sc-toggle-wrap">
+      <input type="checkbox" id="chkAutoAbsa" checked />
+      <span class="sc-toggle-track"><span class="sc-toggle-thumb"></span></span>
+      <span class="sc-toggle-text">Tự động phân tích ABSA</span>
+    </label>
+  </div>
+
+  <!-- Action buttons -->
+  <div class="form-actions">
+    <button class="btn" type="button" id="btnRun" onclick="runScraper()">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <polygon points="5 3 19 12 5 21 5 3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>
+      </svg>
+      Bắt đầu cào dữ liệu
+    </button>
+    <button class="btn btn-outline" type="button" onclick="resetForm()">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      Xóa
+    </button>
+  </div>
+</div>
+
+<!-- ── Loading ────────────────────────────────────────────────────────── -->
+<div id="scraperLoading" class="sc-hidden">
+  <div class="loading-overlay" style="display:flex">
+    <div class="loading-content">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Đang cào dữ liệu từ Google Maps</div>
+      <div class="loading-subtext">Quá trình có thể mất 30–120 giây, vui lòng chờ.</div>
+      <div id="loadingTimer" class="sc-timer">0s</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Error ───────────────────────────────────────────────────────────── -->
+<div id="scraperError" class="card sc-hidden" style="border-left: 4px solid var(--error);">
+  <div class="error-msg" id="scraperErrorMsg"></div>
+</div>
+
+<!-- ── Results ────────────────────────────────────────────────────────── -->
+<div id="scraperResults" class="sc-hidden">
+
+  <!-- Place info -->
+  <div class="card sc-place-card" id="placeBar" style="display:none"></div>
+
+  <!-- Star filter -->
+  <div class="sc-star-filter" id="starFilter">
+    <span class="sc-star-filter-label">Lọc theo sao:</span>
+    <button class="sc-star-chip active" data-star="all" onclick="filterByStars('all')">Tất cả</button>
+    <button class="sc-star-chip" data-star="5" onclick="filterByStars(5)">★★★★★</button>
+    <button class="sc-star-chip" data-star="4" onclick="filterByStars(4)">★★★★☆</button>
+    <button class="sc-star-chip" data-star="3" onclick="filterByStars(3)">★★★☆☆</button>
+    <button class="sc-star-chip" data-star="2" onclick="filterByStars(2)">★★☆☆☆</button>
+    <button class="sc-star-chip" data-star="1" onclick="filterByStars(1)">★☆☆☆☆</button>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="sc-toolbar">
+    <span class="sc-results-count" id="resultsCount"></span>
+    <div class="sc-toolbar-model">
+      <label class="sc-toolbar-label" for="selAbsaModel">Model ABSA</label>
+      <select id="selAbsaModel" class="sc-select" style="width:auto">
+        <option value="deberta_crf">DeBERTa+CRF</option>
+        <option value="bilstm">BiLSTM+Attention</option>
+        <option value="crf_baseline">CRF Baseline</option>
+      </select>
+    </div>
+    <div class="sc-toolbar-actions">
+      <button class="btn-outline sc-toolbar-btn" onclick="analyzeAll()" id="btnAnalyzeAll">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        </svg>
+        Phân tích tất cả ABSA
+      </button>
+      <button class="btn-outline sc-toolbar-btn" onclick="exportCSV()">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>
+          <line x1="12" y1="15" x2="12" y2="3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>
+        </svg>
+        Xuất CSV
+      </button>
+    </div>
+  </div>
+
+  <!-- Reviews list -->
+  <div id="reviewsList" class="sc-reviews-list"></div>
+</div>
+
+<!-- ── Scoped styles ──────────────────────────────────────────────────── -->
+<style>
+/* ── Utilities ── */
+.sc-hidden { display: none !important; }
+.sc-hint {
+  font-size: 12px; color: var(--muted); margin-top: 6px; font-weight: 500;
+}
+
+/* ── Mode toggle ── */
+.scraper-mode-toggle {
+  display: inline-flex; gap: 0;
+  border: 2px solid var(--border); border-radius: 6px;
+  overflow: hidden; margin-bottom: 20px;
+}
+.scraper-mode-btn {
+  padding: 8px 20px; border: none; background: white;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  font-size: 14px; font-weight: 600;
+  color: var(--text-secondary); cursor: pointer; transition: all .2s;
+}
+.scraper-mode-btn.active {
+  background: var(--primary); color: white;
+}
+.scraper-mode-btn:not(.active):hover {
+  background: var(--bg);
+}
+
+/* ── Options grid ── */
+.sc-options-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 14px; margin: 20px 0;
+}
+.sc-opt-group { display: flex; flex-direction: column; }
+.sc-opt-label {
+  font-size: 12px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px;
+}
+.sc-select {
+  padding: 8px 12px !important; font-size: 14px !important;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+}
+
+/* ── Toggle switches ── */
+.sc-toggles-row {
+  display: flex; gap: 24px; flex-wrap: wrap;
+  margin-bottom: 20px; padding-top: 4px;
+}
+.sc-toggle-wrap {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+}
+.sc-toggle-wrap input[type=checkbox] { display: none; }
+.sc-toggle-track {
+  width: 36px; height: 20px; border-radius: 8px;
+  background: #cbd5e1; position: relative; transition: background .2s;
+  flex-shrink: 0;
+}
+.sc-toggle-thumb {
+  position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: white; transition: transform .2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.sc-toggle-wrap input:checked + .sc-toggle-track { background: var(--primary); }
+.sc-toggle-wrap input:checked + .sc-toggle-track .sc-toggle-thumb { transform: translateX(16px); }
+.sc-toggle-text { font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+
+/* ── Timer ── */
+.sc-timer {
+  margin-top: 12px; font-size: 18px; font-weight: 700;
+  color: var(--primary); font-variant-numeric: tabular-nums;
+}
+
+/* ── Place card ── */
+.sc-place-card {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 20px 28px;
+  background: rgba(37,99,235,.03); border: 1px solid rgba(37,99,235,.15);
+  border-radius: 6px;
+}
+.sc-place-name { font-size: 16px; font-weight: 700; flex: 1 0 auto; }
+.sc-place-addr { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+.sc-place-score {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3);
+  border-radius: 6px; padding: 6px 12px;
+  font-size: 14px; font-weight: 700; color: #92680a;
+}
+
+/* ── Toolbar ── */
+.sc-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; gap: 12px; flex-wrap: wrap;
+}
+.sc-results-count { font-weight: 700; font-size: 14px; color: var(--text); }
+.sc-toolbar-actions { display: flex; gap: 8px; }
+.sc-toolbar-model { display: flex; align-items: center; gap: 8px; }
+.sc-toolbar-label {
+  font-size: 12px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+  white-space: nowrap;
+}
+.sc-toolbar-btn {
+  padding: 8px 14px !important; font-size: 13px !important;
+}
+
+/* ── Reviews list ── */
+.sc-reviews-list { display: flex; flex-direction: column; gap: 12px; }
+
+.sc-review-card {
+  background: white; border: 1px solid var(--border);
+  border-radius: 8px; padding: 20px 24px;
+  box-shadow: 0 1px 3px var(--shadow); transition: box-shadow .2s;
+}
+.sc-review-card:hover { box-shadow: 0 4px 16px rgba(15,23,42,.1); }
+
+.sc-review-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+}
+.sc-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--primary); display: flex; align-items: center;
+  justify-content: center; color: white; font-weight: 700;
+  font-size: 14px; flex-shrink: 0; overflow: hidden;
+}
+.sc-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.sc-reviewer-info { flex: 1; min-width: 0; }
+.sc-reviewer-name {
+  font-weight: 700; font-size: 14px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sc-reviewer-meta {
+  font-size: 12px; color: var(--muted); font-weight: 500;
+  display: flex; gap: 8px; align-items: center;
+}
+.sc-stars { color: #f59e0b; font-size: 13px; letter-spacing: -1px; }
+
+.sc-review-text {
+  font-size: 14px; line-height: 1.65; color: var(--text); margin-bottom: 12px;
+  white-space: pre-wrap; font-weight: 500;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+}
+.sc-clamp {
+  display: -webkit-box; -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical; overflow: hidden;
+}
+.sc-review-text.sc-expanded { -webkit-line-clamp: unset; }
+
+.sc-review-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.sc-btn-analyze {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 8px;
+  border: 1.5px solid var(--primary); background: transparent;
+  color: var(--primary); font-size: 13px; font-weight: 700;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  cursor: pointer; transition: all .2s;
+}
+.sc-btn-analyze:hover { background: var(--primary); color: white; }
+.sc-btn-analyze:disabled { opacity: .5; cursor: not-allowed; }
+.sc-btn-expand {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 12px; border-radius: 8px;
+  border: 1.5px solid var(--border); background: transparent;
+  color: var(--muted); font-size: 13px; font-weight: 600;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  cursor: pointer; transition: all .2s;
+}
+.sc-btn-expand:hover { border-color: var(--text-secondary); color: var(--text-secondary); }
+
+/* ── ABSA inline result ── */
+.sc-absa-result {
+  margin-top: 12px; padding: 14px 16px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+}
+.sc-absa-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); margin-bottom: 8px;
+}
+.sc-absa-aspects { display: flex; flex-wrap: wrap; gap: 6px; }
+.sc-absa-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 12px; border-radius: 16px;
+  font-size: 13px; font-weight: 700;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+}
+.sc-absa-tag.positive { background: var(--positive-bg); color: var(--positive); }
+.sc-absa-tag.negative { background: var(--negative-bg); color: var(--negative); }
+.sc-absa-tag.neutral  { background: var(--neutral-bg);  color: var(--neutral);  }
+.sc-absa-no {
+  font-size: 13px; color: var(--muted); font-style: italic; font-weight: 500;
+}
+.sc-absa-trans {
+  font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;
+  font-style: normal; font-weight: 500;
+}
+.sc-absa-trans em { font-style: italic; color: var(--muted); }
+.sc-trans-badge {
+  display: inline-block; padding: 1px 7px; border-radius: 8px;
+  font-size: 11px; font-weight: 700; vertical-align: middle;
+}
+.sc-trans-perplexity { background: #ede9fe; color: #7c3aed; }
+.sc-trans-google     { background: #dbeafe; color: #1d4ed8; }
+.sc-absa-err { font-size: 13px; color: var(--error); font-weight: 500; }
+.sc-absa-loading {
+  font-size: 13px; color: var(--muted); font-weight: 500;
+  display: flex; align-items: center; gap: 8px;
+}
+.sc-absa-spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--primary);
+  animation: spin .8s linear infinite; display: inline-block;
+}
+
+/* ── Star filter ── */
+.sc-star-filter {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 14px; padding: 12px 16px;
+  background: white; border: 1px solid var(--border); border-radius: 8px;
+}
+.sc-star-filter-label {
+  font-size: 13px; font-weight: 700; color: var(--text-secondary); margin-right: 4px;
+}
+.sc-star-chip {
+  padding: 5px 12px; border-radius: 16px;
+  border: 1.5px solid var(--border); background: white;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  font-size: 13px; font-weight: 600; color: var(--text-secondary);
+  cursor: pointer; transition: all .2s; letter-spacing: -1px;
+}
+.sc-star-chip:hover {
+  border-color: var(--primary); color: var(--primary);
+}
+.sc-star-chip.active {
+  background: var(--primary); color: white; border-color: var(--primary);
+}
+
+/* ── Empty state ── */
+.sc-empty {
+  text-align: center; padding: 40px 20px; color: var(--muted);
+  font-weight: 500; font-size: 14px;
+}
+</style>
+
+<!-- ── Script ─────────────────────────────────────────────────────────── -->
+<script>
+let _reviews = [];
+let _currentStarFilter = 'all';
+
+/* ── Init ── */
+document.addEventListener('DOMContentLoaded', () => setMode('url'));
+
+/* ── Mode toggle ── */
+function setMode(mode) {
+  const isUrl = mode === 'url';
+  document.getElementById('panelUrl').classList.toggle('sc-hidden', !isUrl);
+  document.getElementById('panelQuery').classList.toggle('sc-hidden', isUrl);
+  document.getElementById('btnModeUrl').classList.toggle('active', isUrl);
+  document.getElementById('btnModeQuery').classList.toggle('active', !isUrl);
+  // Ẩn các tuỳ chọn chỉ dùng khi tìm kiếm
+  ['grpMaxPlaces', 'grpMatching', 'grpMinStars'].forEach(id => {
+    document.getElementById(id).classList.toggle('sc-hidden', isUrl);
+  });
+}
+
+/* ── Timer ── */
+let _timerInterval = null;
+function startTimer() {
+  let s = 0;
+  const el = document.getElementById('loadingTimer');
+  if (_timerInterval) clearInterval(_timerInterval);
+  _timerInterval = setInterval(() => { el.textContent = (++s) + 's'; }, 1000);
+}
+function stopTimer() {
+  if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
+}
+
+/* ── Reset form ── */
+function resetForm() {
+  document.getElementById('inputUrl').value = '';
+  document.getElementById('inputQuery').value = '';
+  document.getElementById('inputLocation').value = '';
+  document.getElementById('inputReviewsFilter').value = '';
+  document.getElementById('inputStartDate').value = '';
+  document.getElementById('selMaxReviews').value = '25';
+  document.getElementById('selMaxPlaces').value = '1';
+  document.getElementById('selLanguage').value = 'en';
+  document.getElementById('selSort').value = 'newest';
+  document.getElementById('selOrigin').value = 'all';
+  document.getElementById('selMatching').value = 'all';
+  document.getElementById('selMinStars').value = '';
+  document.getElementById('chkSkipClosed').checked = false;
+  document.getElementById('scraperError').classList.add('sc-hidden');
+  document.getElementById('scraperResults').classList.add('sc-hidden');
+}
+
+/* ── Main scraper ── */
+async function runScraper() {
+  const isUrl = document.getElementById('btnModeUrl').classList.contains('active');
+  const url   = document.getElementById('inputUrl').value.trim();
+  const query = document.getElementById('inputQuery').value.trim();
+  const loc   = document.getElementById('inputLocation').value.trim();
+
+  if (isUrl && !url)   { showErr('Vui lòng nhập URL Google Maps.'); return; }
+  if (!isUrl && !query) { showErr('Vui lòng nhập tên địa điểm.'); return; }
+
+  const payload = {
+    url:              isUrl ? url : null,
+    query:            isUrl ? null : query,
+    location:         isUrl ? null : loc,
+    max_reviews:      parseInt(document.getElementById('selMaxReviews').value),
+    max_places:       parseInt(document.getElementById('selMaxPlaces').value),
+    language:         document.getElementById('selLanguage').value,
+    reviews_sort:     document.getElementById('selSort').value,
+    reviews_filter:   document.getElementById('inputReviewsFilter').value.trim(),
+    reviews_origin:   document.getElementById('selOrigin').value,
+    reviews_start_date: document.getElementById('inputStartDate').value || null,
+    search_matching:  document.getElementById('selMatching').value,
+    place_min_stars:  document.getElementById('selMinStars').value,
+    skip_closed:      document.getElementById('chkSkipClosed').checked,
+  };
+
+  document.getElementById('btnRun').disabled = true;
+  document.getElementById('scraperError').classList.add('sc-hidden');
+  document.getElementById('scraperResults').classList.add('sc-hidden');
+  document.getElementById('scraperLoading').classList.remove('sc-hidden');
+  startTimer();
+
+  try {
+    const resp = await fetch('/api/scraper/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    stopTimer();
+    document.getElementById('scraperLoading').classList.add('sc-hidden');
+    document.getElementById('btnRun').disabled = false;
+
+    if (!data.ok) {
+      showErr('Lỗi: ' + (data.error || 'Không rõ nguyên nhân.'));
+      return;
+    }
+    renderResults(data);
+  } catch (e) {
+    stopTimer();
+    document.getElementById('scraperLoading').classList.add('sc-hidden');
+    document.getElementById('btnRun').disabled = false;
+    showErr('Lỗi kết nối: ' + e.message);
+  }
+}
+
+/* ── Render results ── */
+function renderResults(data) {
+  _reviews = data.reviews || [];
+
+  // Place bar
+  const pb = document.getElementById('placeBar');
+  if (data.place_name) {
+    let scoreHtml = '';
+    if (data.total_score != null) {
+      const full  = Math.floor(data.total_score);
+      const empty = 5 - full;
+      const stars = '\u2605'.repeat(full) + '\u2606'.repeat(empty);
+      scoreHtml = `
+        <div class="sc-place-score">
+          <span class="sc-stars">${stars}</span>
+          ${data.total_score}
+          ${data.total_reviews ? '<span style="font-weight:400;opacity:.7">(' + data.total_reviews.toLocaleString() + ' reviews)</span>' : ''}
+        </div>`;
+    }
+    pb.innerHTML = `
+      <div>
+        <div class="sc-place-name">${esc(data.place_name)}</div>
+        ${data.place_address ? '<div class="sc-place-addr">' + esc(data.place_address) + '</div>' : ''}
+      </div>
+      ${scoreHtml}`;
+    pb.style.display = 'flex';
+  } else {
+    pb.style.display = 'none';
+  }
+
+  // Reset star filter
+  _currentStarFilter = 'all';
+  document.querySelectorAll('.sc-star-chip').forEach(c => c.classList.toggle('active', c.dataset.star === 'all'));
+
+  // Update star count badges
+  updateStarCounts();
+
+  // Render all review cards
+  renderFilteredReviews();
+
+  document.getElementById('scraperResults').classList.remove('sc-hidden');
+
+  // Auto ABSA
+  if (document.getElementById('chkAutoAbsa').checked && _reviews.length) {
+    analyzeAll();
+  }
+}
+
+/* ── Star filter ── */
+function filterByStars(star) {
+  _currentStarFilter = star;
+  document.querySelectorAll('.sc-star-chip').forEach(c => {
+    c.classList.toggle('active', String(c.dataset.star) === String(star));
+  });
+  renderFilteredReviews();
+}
+
+function renderFilteredReviews() {
+  const list = document.getElementById('reviewsList');
+  list.innerHTML = '';
+  let count = 0;
+  if (!_reviews.length) {
+    list.innerHTML = '<div class="sc-empty">Không tìm thấy review nào.</div>';
+  } else {
+    _reviews.forEach((rv, idx) => {
+      if (_currentStarFilter !== 'all' && Math.round(rv.rating || 0) !== _currentStarFilter) return;
+      list.appendChild(makeReviewCard(rv, idx));
+      count++;
+    });
+    if (!count) {
+      list.innerHTML = '<div class="sc-empty">Không có review nào với số sao đã chọn.</div>';
+    }
+  }
+  const shown = _currentStarFilter === 'all' ? _reviews.length : count;
+  const suffix = _currentStarFilter !== 'all' ? ' (lọc ' + _currentStarFilter + ' sao)' : '';
+  document.getElementById('resultsCount').textContent = shown + ' reviews' + suffix;
+}
+
+function updateStarCounts() {
+  const counts = {1:0, 2:0, 3:0, 4:0, 5:0};
+  _reviews.forEach(rv => {
+    const r = Math.round(rv.rating || 0);
+    if (counts[r] !== undefined) counts[r]++;
+  });
+  document.querySelectorAll('.sc-star-chip').forEach(c => {
+    const s = c.dataset.star;
+    if (s !== 'all') {
+      const n = counts[parseInt(s)] || 0;
+      const starStr = '\u2605'.repeat(parseInt(s)) + '\u2606'.repeat(5 - parseInt(s));
+      c.textContent = starStr + ' (' + n + ')';
+    } else {
+      c.textContent = 'Tất cả (' + _reviews.length + ')';
+    }
+  });
+}
+
+/* ── Build review card ── */
+function makeReviewCard(rv, idx) {
+  const card = document.createElement('div');
+  card.className = 'sc-review-card';
+  card.id = 'review-' + idx;
+
+  const r = Math.round(rv.rating || 0);
+  const stars = rv.rating ? ('\u2605'.repeat(r) + '\u2606'.repeat(5 - r)) : '';
+  const initials = (rv.reviewer || 'A').charAt(0).toUpperCase();
+  const isLong = (rv.text || '').length > 320;
+
+  card.innerHTML = `
+    <div class="sc-review-header">
+      <div class="sc-avatar">
+        ${rv.avatar ? '<img src="' + esc(rv.avatar) + '" alt="" onerror="this.style.display=\'none\'" />' : ''}
+        ${initials}
+      </div>
+      <div class="sc-reviewer-info">
+        <div class="sc-reviewer-name">${esc(rv.reviewer || 'Ẩn danh')}</div>
+        <div class="sc-reviewer-meta">
+          ${stars ? '<span class="sc-stars">' + stars + '</span>' : ''}
+          ${rv.date ? '<span>' + esc(rv.date) + '</span>' : ''}
+          ${rv.likes ? '<span>' + rv.likes + ' likes</span>' : ''}
+        </div>
+      </div>
+    </div>
+    <div class="sc-review-text sc-clamp" id="text-${idx}">${esc(rv.text || '(Không có nội dung)')}</div>
+    <div class="sc-review-actions">
+      <button class="sc-btn-analyze" id="btn-absa-${idx}" onclick="analyzeOne(${idx})">Phân tích ABSA</button>
+      ${isLong ? '<button class="sc-btn-expand" id="exp-' + idx + '" onclick="toggleExpand(' + idx + ')">Xem thêm</button>' : ''}
+    </div>
+    <div id="absa-${idx}"></div>
+  `;
+  return card;
+}
+
+/* ── Expand/collapse ── */
+function toggleExpand(idx) {
+  const el = document.getElementById('text-' + idx);
+  const btn = document.getElementById('exp-' + idx);
+  const expanded = el.classList.toggle('sc-expanded');
+  el.classList.toggle('sc-clamp', !expanded);
+  btn.textContent = expanded ? 'Thu gọn' : 'Xem thêm';
+}
+
+/* ── Analyze single ── */
+async function analyzeOne(idx) {
+  const rv = _reviews[idx];
+  if (!rv || !rv.text) return;
+  const container = document.getElementById('absa-' + idx);
+  const btn = document.getElementById('btn-absa-' + idx);
+  btn.disabled = true;
+  container.innerHTML = '<div class="sc-absa-result"><div class="sc-absa-loading"><span class="sc-absa-spinner"></span> Đang phân tích...</div></div>';
+  const model = (document.getElementById('selAbsaModel') || {}).value || 'deberta_crf';
+  try {
+    const resp = await fetch('/api/scraper/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: rv.text, model }),
+    });
+    const data = await resp.json();
+    btn.disabled = false;
+    if (!data.ok) {
+      container.innerHTML = '<div class="sc-absa-result"><div class="sc-absa-err">Lỗi: ' + esc(data.error || '') + '</div></div>';
+      return;
+    }
+    renderAbsa(container, data);
+  } catch (e) {
+    btn.disabled = false;
+    container.innerHTML = '<div class="sc-absa-result"><div class="sc-absa-err">Lỗi: ' + e.message + '</div></div>';
+  }
+}
+
+/* ── Analyze all ── */
+async function analyzeAll() {
+  const btn = document.getElementById('btnAnalyzeAll');
+  btn.disabled = true;
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '<span class="sc-absa-spinner"></span> Đang phân tích...';
+  for (let i = 0; i < _reviews.length; i++) {
+    await analyzeOne(i);
+    await new Promise(r => setTimeout(r, 150));
+  }
+  btn.disabled = false;
+  btn.innerHTML = origHTML;
+}
+
+const MODEL_LABELS = {
+  'deberta_crf':  'DeBERTa+CRF',
+  'bilstm':       'BiLSTM+Attention',
+  'crf_baseline': 'CRF Baseline',
+};
+const MODEL_KEYS = {
+  'deberta_crf':  'deberta_crf',
+  'bilstm':       'bilstm',
+  'crf_baseline': 'crf_baseline',
+};
+
+/* ── Render ABSA inline ── */
+function renderAbsa(container, data) {
+  const predictions = data.predictions || [];
+  const model = data.model || 'deberta_crf';
+  const modelKey   = MODEL_KEYS[model]   || 'deberta_crf';
+  const modelLabel = MODEL_LABELS[model] || model;
+  if (!predictions.length) {
+    container.innerHTML = '<div class="sc-absa-result"><div class="sc-absa-no">Không phát hiện khía cạnh nào.</div></div>';
+    return;
+  }
+  const tags = predictions.map(p => {
+    const res = p[modelKey];
+    if (!res) return '';
+    const pol = (res.polarity || 'neutral').toLowerCase();
+    return '<span class="sc-absa-tag ' + pol + '">' + esc(p.aspect) + ' (' + res.polarity + ')</span>';
+  }).filter(Boolean).join('');
+  const transNote = data.original_text
+    ? (() => {
+        const engine = data.translation_engine === 'perplexity' ? 'Perplexity' : 'Google';
+        const badge  = `<span class="sc-trans-badge sc-trans-${data.translation_engine}">${engine}</span>`;
+        return `<div class="sc-absa-trans">Đã dịch (${badge}): <em>${esc(data.translated_text)}</em></div>`;
+      })()
+    : '';
+  container.innerHTML = `
+    <div class="sc-absa-result">
+      <div class="sc-absa-title">Kết quả ABSA (${modelLabel})</div>
+      ${transNote}
+      <div class="sc-absa-aspects">${tags}</div>
+    </div>`;
+}
+
+/* ── Export CSV ── */
+function exportCSV() {
+  if (!_reviews.length) return;
+  const rows = [['#', 'Reviewer', 'Rating', 'Date', 'Text']];
+  _reviews.forEach((rv, i) => {
+    rows.push([i + 1, rv.reviewer, rv.rating ?? '', rv.date, (rv.text || '').replace(/"/g, '""')]);
+  });
+  const csv = rows.map(r => r.map(v => '"' + v + '"').join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'google_maps_reviews.csv';
+  a.click();
+}
+
+/* ── Utilities ── */
+function showErr(msg) {
+  const card = document.getElementById('scraperError');
+  document.getElementById('scraperErrorMsg').innerHTML = '<strong>Lỗi:</strong> ' + esc(msg);
+  card.classList.remove('sc-hidden');
+}
+function esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+</script>
+{% endblock %}

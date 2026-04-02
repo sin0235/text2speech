@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <h1>Engine & Voice Workflow</h1>
+  <p class="subtitle">
+    So sánh hai engine TTS đang được bọc trong project, cùng checklist để chọn
+    audio tham chiếu phù hợp cho tiếng Việt.
+  </p>
+</div>
+
+<div class="comparison-grid">
+  {% for card in engine_cards %}
+  <div class="card comparison-card">
+    <div class="comparison-head">
+      <div>
+        <div class="comparison-title">{{ card.label }}</div>
+        <div class="comparison-subtitle">{{ card.output_quality }}</div>
+      </div>
+      <span class="inline-status {% if card.ready %}inline-status-ready{% else %}inline-status-offline{% endif %}">
+        {% if card.ready %}Ready{% else %}Unavailable{% endif %}
+      </span>
+    </div>
+
+    <p class="comparison-text">{{ card.description }}</p>
+
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-label">Phù hợp nhất</div>
+        <div class="info-val">{{ card.recommended_for }}</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Transcript</div>
+        <div class="info-val">
+          {% if card.supports_reference_text %}Có dùng{% else %}Không dùng{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="voice-tip-box">
+      <div class="voice-tip-title">Reference hint</div>
+      <div class="voice-tip-text">{{ card.reference_hint }}</div>
+    </div>
+
+    <div class="engine-metadata">
+      {% for key, value in card.metadata.items() %}
+      <div class="metadata-line">
+        <span>{{ key }}</span>
+        <strong>{{ value }}</strong>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="section-title">
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+    </svg>
+    Checklist cho giọng mẫu
+  </div>
+
+  <div class="stack-list">
+    {% for tip in reference_tips %}
+    <div class="stack-row">{{ tip }}</div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-title">
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+    Quy trình đề xuất
+  </div>
+
+  <div class="workflow-grid">
+    <div class="workflow-step">
+      <span class="workflow-index">1</span>
+      <div>
+        <strong>Chọn engine</strong>
+        <p>ViRa cho tiếng Việt tự nhiên, F5-TTS cho voice cloning linh hoạt và seed tái lập.</p>
+      </div>
+    </div>
+    <div class="workflow-step">
+      <span class="workflow-index">2</span>
+      <div>
+        <strong>Chuẩn bị câu mẫu</strong>
+        <p>Ưu tiên câu tham chiếu rõ chữ, ít nhiễu, cùng giới tính và cùng tông nói với đầu ra mong muốn.</p>
+      </div>
+    </div>
+    <div class="workflow-step">
+      <span class="workflow-index">3</span>
+      <div>
+        <strong>Sinh audio ngắn trước</strong>
+        <p>Render một đoạn 1-2 câu để kiểm tra dấu thanh, tốc độ đọc và độ bám chất giọng.</p>
+      </div>
+    </div>
+    <div class="workflow-step">
+      <span class="workflow-index">4</span>
+      <div>
+        <strong>Chia script dài</strong>
+        <p>Nếu bản voice-over dài, tách thành block ngắn để dễ chỉnh sửa và giữ chất lượng ổn định.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

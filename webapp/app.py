@@ -1,0 +1,196 @@
+from __future__ import annotations
+
+import mimetypes
+from pathlib import Path
+
+from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
+
+try:
+    from webapp.tts_service import TTSError, TTSStudioService
+except ImportError:  # pragma: no cover
+    from tts_service import TTSError, TTSStudioService
+
+
+ROOT = Path(__file__).resolve().parent.parent
+app = Flask(__name__, static_folder="static", template_folder="templates")
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
+
+studio = TTSStudioService(ROOT)
+
+TEXT_EXAMPLES = [
+    "Xin chào, đây là bản demo chuyển văn bản thành giọng nói tiếng Việt bằng F5-TTS và ViRa.",
+    "Thông báo: lớp học xử lý ngôn ngữ tự nhiên sẽ bắt đầu lúc tám giờ sáng tại phòng A3.",
+    "Hôm nay chúng ta sẽ thu voice-over cho landing page với tông giọng rõ, sáng và chuyên nghiệp.",
+    "Chúc bạn có một ngày làm việc hiệu quả, nhẹ nhàng và nhiều năng lượng tích cực.",
+]
+
+REFERENCE_TIPS = [
+    "Giữ audio tham chiếu dài khoảng 3 đến 12 giây, một người nói, không nhạc nền.",
+    "Nếu dùng F5-TTS, thêm transcript của câu mẫu sẽ giúp model bám giọng ổn định hơn.",
+    "Ưu tiên micro gần miệng, âm lượng đều, tránh tiếng quạt hoặc vang phòng.",
+]
+
+SETUP_STEPS = [
+    {
+        "title": "Cài Flask UI",
+        "body": "Dùng requirements tối thiểu của webapp để chạy giao diện và API upload / download audio.",
+    },
+    {
+        "title": "Bật F5-TTS",
+        "body": "Cài upstream F5-TTS, cấu hình checkpoint nếu cần, rồi để engine F5 load lazily khi người dùng bấm Generate.",
+    },
+    {
+        "title": "Bật ViRa",
+        "body": "Cài ViRa/Mira, đặt model trong thư mục models/vira hoặc bật VIRA_AUTO_DOWNLOAD=1.",
+    },
+]
+
+ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+
+
+def _base_context(active: str) -> dict:
+    engine_cards = studio.get_engine_cards()
+    return {
+        "active": active,
+        "engine_cards": engine_cards,
+        "status_summary": studio.summary(),
+    }
+
+
+def _pick_default_engine(engine_cards: list) -> str:
+    for card in engine_cards:
+        if card.id == studio.default_engine and card.ready:
+            return card.id
+    for card in engine_cards:
+        if card.ready:
+            return card.id
+    return engine_cards[0].id if engine_cards else "vira"
+
+
+@app.route("/")
+def home():
+    context = _base_context("home")
+    context.update(
+        examples=TEXT_EXAMPLES,
+        reference_tips=REFERENCE_TIPS,
+        default_engine_id=_pick_default_engine(context["engine_cards"]),
+    )
+    return render_template("home.html", **context)
+
+
+@app.route("/voices")
+def voices_page():
+    context = _base_context("voices")
+    context.update(reference_tips=REFERENCE_TIPS)
+    return render_template("voices.html", **context)
+
+
+@app.route("/about")
+def about():
+    context = _base_context("about")
+    context.update(setup_steps=SETUP_STEPS)
+    return render_template("about.html", **context)
+
+
+@app.route("/api/tts/status")
+def api_tts_status():
+    cards = studio.get_engine_cards()
+    return jsonify(
+        {
+            "ok": True,
+            "summary": studio.summary(),
+            "engines": [
+                {
+                    "id": card.id,
+                    "label": card.label,
+                    "ready": card.ready,
+                    "summary": card.summary,
+                    "warning": card.warning,
+                    "metadata": card.metadata,
+                }
+                for card in cards
+            ],
+        }
+    )
+
+
+@app.route("/api/tts/generate", methods=["POST"])
+def api_tts_generate():
+    upload = request.files.get("reference_audio")
+    text = (request.form.get("text") or "").strip()
+    engine_id = (request.form.get("engine") or studio.default_engine).strip().lower()
+    reference_text = (request.form.get("reference_text") or "").strip()
+    remove_silence = (request.form.get("remove_silence") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    speed_raw = (request.form.get("speed") or "1.0").strip()
+    seed_raw = (request.form.get("seed") or "").strip()
+
+    if not upload or not upload.filename:
+        return jsonify({"ok": False, "error": "Cần upload audio tham chiếu trước khi sinh giọng."}), 400
+
+    extension = Path(upload.filename).suffix.lower()
+    if extension not in ALLOWED_AUDIO_EXTENSIONS:
+        return jsonify(
+            {
+                "ok": False,
+                "error": "Định dạng audio chưa hỗ trợ. Chỉ nhận .wav, .mp3, .m4a, .flac, .ogg.",
+            }
+        ), 400
+
+    try:
+        speed = min(max(float(speed_raw), 0.7), 1.3)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Speed phải là số hợp lệ trong khoảng 0.7 - 1.3."}), 400
+
+    seed = None
+    if seed_raw:
+        try:
+            seed = int(seed_raw)
+        except ValueError:
+            return jsonify({"ok": False, "error": "Seed phải là số nguyên nếu được nhập."}), 400
+
+    reference_path = studio.save_reference_file(upload.filename, upload.read())
+
+    try:
+        result = studio.synthesize(
+            engine_id=engine_id,
+            text=text,
+            reference_audio=reference_path,
+            reference_text=reference_text,
+            speed=speed,
+            remove_silence=remove_silence,
+            seed=seed,
+        )
+    except TTSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 422
+    except Exception as exc:  # pragma: no cover
+        return jsonify({"ok": False, "error": f"Lỗi không mong muốn: {exc}"}), 500
+
+    audio_url = url_for("serve_generated_audio", filename=result.output_path.name)
+    return jsonify(
+        {
+            "ok": True,
+            "engine": result.engine_id,
+            "engine_label": result.engine_label,
+            "audio_url": audio_url,
+            "download_name": result.output_path.name,
+            "sample_rate": result.sample_rate,
+            "duration_seconds": round(result.duration_seconds, 2),
+            "inference_seconds": round(result.inference_seconds, 2),
+            "chunk_count": result.chunk_count,
+            "reference_text_used": result.reference_text_used,
+            "seed": result.seed,
+            "notes": result.notes,
+            "storage_path": str(result.output_path.relative_to(ROOT)),
+        }
+    )
+
+
+@app.route("/outputs/<path:filename>")
+def serve_generated_audio(filename: str):
+    guessed = mimetypes.guess_type(filename)[0] or "audio/wav"
+    return send_from_directory(studio.output_dir, filename, mimetype=guessed, as_attachment=False)
+
+
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=8386)

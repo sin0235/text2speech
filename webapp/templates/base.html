@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vietnamese TTS Studio</title>
+    <meta
+      name="description"
+      content="Studio text to speech tiếng Việt với F5-TTS và ViRa, giữ giao diện xanh trắng hiện đại."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="logo">
+          <div class="logo-mark">TTS</div>
+          <div>
+            <b>Vietnamese TTS Studio</b>
+            <span>F5-TTS + ViRa voice cloning trên giao diện xanh trắng hiện có</span>
+          </div>
+        </div>
+
+        <nav>
+          <a href="/" class="{{ 'active' if active == 'home' }}">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h10" />
+            </svg>
+            Studio
+          </a>
+          <a href="/voices" class="{{ 'active' if active == 'voices' }}">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-2v13M9 19a3 3 0 11-6 0 3 3 0 016 0zm12-2a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Engines
+          </a>
+          <a href="/about" class="{{ 'active' if active == 'about' }}">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Kiến trúc
+          </a>
+        </nav>
+
+        <div class="header-status">
+          <span class="status-pill">{{ status_summary.ready_count }}/{{ status_summary.engine_count }} engine sẵn sàng</span>
+          <span class="status-pill status-pill-muted">{{ status_summary.device_label }}</span>
+        </div>
+      </header>
+
+      <main>{% block content %}{% endblock %}</main>
+
+      <footer>
+        <div class="footer-inner">
+          <span>© 2026 HCMUTE</span>
+          <span class="footer-sep">·</span>
+          <span>Vietnamese TTS Studio</span>
+          <span class="footer-sep">·</span>
+          <span>{{ status_summary.default_engine }} mặc định</span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

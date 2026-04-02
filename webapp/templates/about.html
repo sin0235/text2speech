@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <h1>Kiến trúc project</h1>
+  <p class="subtitle">
+    Project đã được chuyển từ demo phân tích văn bản cũ sang một Flask TTS
+    studio mới, tập trung cho tiếng Việt với hai engine F5-TTS và ViRa.
+  </p>
+</div>
+
+<div class="info-grid architecture-grid">
+  <div class="info-item architecture-item">
+    <div class="info-label">Frontend</div>
+    <div class="info-val">Jinja + JS thuần, giữ font Plus Jakarta Sans / Inter, màu xanh trắng và hiệu ứng hover / loading.</div>
+  </div>
+  <div class="info-item architecture-item">
+    <div class="info-label">Backend</div>
+    <div class="info-val">Flask route cho trang studio, API sinh audio, route phát output và route kiểm tra trạng thái engine.</div>
+  </div>
+  <div class="info-item architecture-item">
+    <div class="info-label">Service Layer</div>
+    <div class="info-val">`TTSStudioService` load engine theo nhu cầu, validate input, lưu file tham chiếu và ghi WAV đầu ra.</div>
+  </div>
+  <div class="info-item architecture-item">
+    <div class="info-label">Storage</div>
+    <div class="info-val">File runtime nằm trong `webapp/runtime/references` và `webapp/runtime/generated` để dễ nghe lại hoặc tải về.</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-title">
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+    </svg>
+    Setup Flow
+  </div>
+
+  <div class="workflow-grid">
+    {% for step in setup_steps %}
+    <div class="workflow-step">
+      <span class="workflow-index">{{ loop.index }}</span>
+      <div>
+        <strong>{{ step.title }}</strong>
+        <p>{{ step.body }}</p>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-title">
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9h8M8 13h6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+    API hiện có
+  </div>
+
+  <div class="stack-list mono-list">
+    <div class="stack-row"><code>GET /api/tts/status</code> trả trạng thái sẵn sàng của F5-TTS và ViRa.</div>
+    <div class="stack-row"><code>POST /api/tts/generate</code> nhận <code>multipart/form-data</code> gồm text, engine, reference_audio, reference_text, speed, seed.</div>
+    <div class="stack-row"><code>GET /outputs/&lt;filename&gt;</code> phát trực tiếp file WAV đã sinh.</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-title">
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-3.314 0-6 2.239-6 5s2.686 5 6 5 6-2.239 6-5-2.686-5-6-5zm0 0V4m0 14v2" />
+    </svg>
+    Biến môi trường quan trọng
+  </div>
+
+  <div class="engine-metadata">
+    <div class="metadata-line"><span>TTS_DEFAULT_ENGINE</span><strong>Engine mặc định: `vira` hoặc `f5`</strong></div>
+    <div class="metadata-line"><span>VIRA_MODEL_PATH</span><strong>Thư mục local chứa model ViRa</strong></div>
+    <div class="metadata-line"><span>VIRA_AUTO_DOWNLOAD</span><strong>Bật auto-download model từ Hugging Face</strong></div>
+    <div class="metadata-line"><span>F5_MODEL_NAME</span><strong>Tên model F5-TTS cần load</strong></div>
+    <div class="metadata-line"><span>F5_CKPT_FILE</span><strong>Checkpoint tùy chỉnh cho F5-TTS</strong></div>
+    <div class="metadata-line"><span>F5_VOCAB_FILE</span><strong>Vocab file nếu checkpoint yêu cầu</strong></div>
+  </div>
+</div>
+
+{% endblock %}
