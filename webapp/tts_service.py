@@ -106,6 +106,64 @@ def _to_numpy_audio(audio: Any) -> np.ndarray:
     return np.asarray(tensor, dtype=np.float32).reshape(-1)
 
 
+def _numel(obj: Any) -> int | None:
+    if hasattr(obj, "numel"):
+        try:
+            return int(obj.numel())
+        except Exception:
+            return None
+    if hasattr(obj, "size"):
+        try:
+            size = obj.size
+            if isinstance(size, int):
+                return int(size)
+        except Exception:
+            return None
+    return None
+
+
+def _load_audio_mono_float(path: Path, target_sr: int) -> tuple[np.ndarray, int]:
+    try:
+        audio, sr = sf.read(path, always_2d=False)
+        audio_np = np.asarray(audio, dtype=np.float32)
+    except Exception:
+        try:
+            import librosa
+        except Exception as exc:
+            raise TTSError(
+                "Không đọc được audio tham chiếu. Hãy upload WAV/FLAC hoặc cài `librosa` để hỗ trợ MP3/M4A."
+            ) from exc
+        audio_np, sr = librosa.load(str(path), sr=None, mono=False)
+        audio_np = np.asarray(audio_np, dtype=np.float32)
+
+    if audio_np.ndim == 0:
+        raise TTSError("Audio tham chiếu rỗng hoặc không hợp lệ.")
+
+    if audio_np.ndim > 1:
+        audio_np = np.mean(audio_np, axis=-1 if audio_np.shape[-1] <= 8 else 0)
+
+    audio_np = np.asarray(audio_np, dtype=np.float32).reshape(-1)
+    if audio_np.size == 0:
+        raise TTSError("Audio tham chiếu không chứa sample hợp lệ.")
+
+    peak = float(np.max(np.abs(audio_np))) if audio_np.size else 0.0
+    if peak <= 1e-6:
+        raise TTSError("Audio tham chiếu gần như im lặng. Hãy dùng file có tiếng nói rõ hơn.")
+
+    if sr != target_sr:
+        try:
+            import librosa
+        except Exception as exc:
+            raise TTSError(
+                f"Audio tham chiếu đang ở {sr} Hz. Cần cài `librosa` để resample về {target_sr} Hz cho ViRa."
+            ) from exc
+        audio_np = librosa.resample(audio_np, orig_sr=sr, target_sr=target_sr)
+        sr = target_sr
+
+    audio_np = np.clip(audio_np / max(peak, 1.0), -1.0, 1.0).astype(np.float32)
+    return audio_np, sr
+
+
 @dataclass(slots=True)
 class EngineCard:
     id: str
@@ -242,6 +300,19 @@ class TTSStudioService:
         saved.write_bytes(payload)
         return saved
 
+    def _prepare_reference_audio_for_vira(self, reference_audio: Path) -> tuple[Path, float]:
+        target_sr = 48000
+        audio_np, sr = _load_audio_mono_float(reference_audio, target_sr=target_sr)
+        duration_seconds = float(len(audio_np) / sr)
+        if duration_seconds < 1.0:
+            raise TTSError("Audio tham chiếu quá ngắn cho ViRa. Hãy dùng đoạn nói rõ dài tối thiểu khoảng 1 giây, tốt nhất 3-10 giây.")
+        if duration_seconds > 20.0:
+            raise TTSError("Audio tham chiếu quá dài cho ViRa. Hãy cắt còn khoảng 3-10 giây để ổn định hơn.")
+
+        prepared_path = self.reference_dir / f"{reference_audio.stem}-vira-48k.wav"
+        sf.write(prepared_path, audio_np, target_sr)
+        return prepared_path, duration_seconds
+
     def _f5_card(self) -> EngineCard:
         module_ok = importlib.util.find_spec("f5_tts") is not None
         summary = "Sẵn sàng dùng zero-shot voice cloning với F5-TTS." if module_ok else "Chưa cài gói `f5_tts`."
@@ -292,7 +363,7 @@ class TTSStudioService:
             id="vira",
             label="ViRa",
             headline="Tối ưu riêng cho tiếng Việt với zero-shot voice cloning.",
-            description="Adapter này dùng `MiraTTS.encode_audio()` và `generate()` / `batch_generate()` theo flow của space ViRa.",
+            description="Adapter này dùng `MiraTTS.encode_audio()` và `generate()` theo flow của space ViRa, nhưng sinh tuần tự từng chunk để giảm lỗi codec khi câu dài.",
             recommended_for="Dùng mặc định khi cần phát âm tiếng Việt, dấu thanh và ngữ điệu ổn định hơn.",
             output_quality="48kHz audio sau bước decode của codec ViRa.",
             reference_hint="Audio tham chiếu 3-10 giây, một người nói, không vọng phòng. Không cần transcript nhưng vẫn nên dùng câu mẫu rõ ràng.",
@@ -460,34 +531,52 @@ class TTSStudioService:
             vira_split_text = None
 
         context_started = time.perf_counter()
+        prepared_reference_audio, ref_duration = self._prepare_reference_audio_for_vira(reference_audio)
         try:
-            context_tokens = model.encode_audio(str(reference_audio))
+            context_tokens = model.encode_audio(str(prepared_reference_audio))
         except Exception as exc:  # pragma: no cover - depends on external install
             raise TTSError(f"ViRa không encode được audio tham chiếu: {exc}") from exc
+
+        context_numel = _numel(context_tokens)
+        if context_numel is not None and context_numel <= 0:
+            raise TTSError(
+                "ViRa encode ra context token rỗng từ audio tham chiếu. Hãy đổi sang WAV mono, 48kHz hoặc dùng đoạn nói 3-10 giây rõ hơn."
+            )
 
         chunks = vira_split_text(text) if vira_split_text else _split_text_for_tts(text, max_chars=180)
         chunks = [chunk for chunk in chunks if chunk.strip()]
         if not chunks:
             raise TTSError("Không có câu hợp lệ để ViRa sinh audio.")
 
-        try:
-            if len(chunks) == 1:
-                audio = model.generate(chunks[0], context_tokens)
-            else:
-                audio = model.batch_generate(chunks, [context_tokens])
-        except Exception as exc:  # pragma: no cover - depends on external install
-            raise TTSError(f"ViRa sinh audio thất bại: {exc}") from exc
+        chunk_waves: list[np.ndarray] = []
+        for index, chunk in enumerate(chunks):
+            try:
+                audio = model.generate(chunk, context_tokens)
+            except Exception as exc:  # pragma: no cover - depends on external install
+                raise TTSError(
+                    "ViRa sinh audio thất bại: "
+                    f"{exc}. Nguyên nhân thường là audio tham chiếu quá ngắn, có khoảng lặng lớn, hoặc chunk sinh ra token rỗng."
+                ) from exc
 
-        audio_np = _to_numpy_audio(audio)
+            audio_np = _to_numpy_audio(audio)
+            if audio_np.size == 0:
+                raise TTSError(
+                    f"ViRa trả về audio rỗng ở chunk {index + 1}. "
+                    "Hãy thử rút ngắn câu, đổi audio tham chiếu sang WAV mono rõ tiếng, hoặc tách đoạn văn thành các câu ngắn hơn."
+                )
+            chunk_waves.append(audio_np)
+
+        audio_np = _crossfade_join(chunk_waves, sample_rate=48000, duration_ms=65)
         sample_rate = 48000
         sf.write(output_path, audio_np, sample_rate)
 
         elapsed = time.perf_counter() - context_started
         notes = [
-            "ViRa dùng reference audio để encode context token trước khi sinh giọng.",
+            "ViRa dùng reference audio đã được chuẩn hóa về WAV mono 48kHz trước khi encode context token.",
+            f"Audio tham chiếu sau chuẩn hóa dài khoảng {ref_duration:.2f}s.",
         ]
         if len(chunks) > 1:
-            notes.append(f"ViRa đã ghép {len(chunks)} câu bằng batch generation.")
+            notes.append(f"ViRa đã sinh tuần tự {len(chunks)} chunk rồi crossfade để giảm lỗi codec và rớt shape.")
         if reference_text:
             notes.append("ViRa hiện không dùng transcript tham chiếu; trường này chỉ để người dùng đối chiếu.")
 

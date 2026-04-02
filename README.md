@@ -14,6 +14,17 @@ python webapp/app.py
 
 App chạy tại `http://127.0.0.1:8386`.
 
+## Colab notebook
+
+Notebook Colab để clone hoặc pull repo, chạy webapp và mở Cloudflare tunnel:
+
+- `colab_tts_cloudflare.ipynb`
+
+Nếu gặp lỗi `libtorchaudio.so: undefined symbol: torch_list_push_back`, hãy dùng notebook mới nhất:
+
+- notebook đã pin `torch==2.6.0`, `torchvision==0.21.0`, `torchaudio==2.6.0`
+- notebook cũng uninstall bộ `torch*` cũ trước khi cài lại để tránh lệch binary ABI
+
 ## Engine setup
 
 ### F5-TTS
