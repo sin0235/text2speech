@@ -516,6 +516,169 @@ class TTSStudioService:
             notes=notes,
         )
 
+    @staticmethod
+    def _count_speech_tokens(llm_response: str) -> int:
+        """Count valid speech_token_XXX patterns in the LLM output."""
+        return len(re.findall(r"speech_token_\d+", llm_response or ""))
+
+    @staticmethod
+    def _mutate_chunk_text(chunk: str, attempt: int) -> str:
+        """Slightly modify chunk text on retries to nudge the LLM.
+
+        Sometimes the LLM gets stuck on certain text patterns and produces
+        zero or too few speech tokens.  Small formatting changes can break
+        the degenerate generation pattern without changing meaning.
+        """
+        chunk = chunk.strip()
+        if attempt <= 0:
+            return chunk
+        if attempt == 1:
+            # Ensure trailing punctuation
+            if chunk and chunk[-1] not in ".!?;:":
+                return chunk + "."
+            return chunk
+        if attempt == 2:
+            # Add a soft leading prompt word
+            if not chunk.startswith("Đọc:"):
+                return chunk
+            return chunk
+        if attempt == 3:
+            # Remove trailing punctuation to try a different prompt shape
+            if chunk and chunk[-1] in ".!?;:":
+                return chunk[:-1]
+            return chunk + "."
+        # attempt >= 4: add explicit comma break
+        words = chunk.split()
+        mid = len(words) // 2
+        if mid > 0 and "," not in chunk:
+            words.insert(mid, ",")
+            return " ".join(words)
+        return chunk
+
+    def _vira_generate_safe(
+        self,
+        model: Any,
+        chunk: str,
+        context_tokens: str,
+        *,
+        max_retries: int = 5,
+        min_speech_tokens: int = 10,
+    ) -> tuple[Any, list[str]]:
+        """Generate audio for a single chunk with validation and retry logic.
+
+        The upstream AudioDecoder.detokenize() extracts speech tokens via regex.
+        If the LLM produces fewer valid speech_token_XXX patterns than the ONNX
+        Conv kernel's minimum receptive field, the resulting tensor crashes the
+        ONNX Conv node at '/out_project/Conv' with "Invalid input shape: {0}".
+
+        Defence layers:
+          1. Token count validation (min_speech_tokens=10)
+          2. Separate try/except around codec.decode() so ONNX errors trigger retry
+          3. Temperature + text mutation schedule across retries
+          4. Escalating max_new_tokens budget
+        """
+        codec = model.codec
+        pipe = model.pipe
+        base_gen_config = model.gen_config
+        notes: list[str] = []
+
+        # Retry schedule: temperature, top_k, repetition_penalty, max_new_tokens
+        # Gradually increase randomness and output budget.
+        retry_schedule = [
+            {},                                                                          # 0: original
+            {"temperature": 0.9,  "top_k": 80},                                         # 1: warmer
+            {"temperature": 1.0,  "top_k": 100, "repetition_penalty": 1.05},             # 2: more diverse
+            {"temperature": 0.85, "top_k": 60,  "max_new_tokens": 2048},                 # 3: longer budget, lower temp
+            {"temperature": 1.1,  "top_k": 120, "repetition_penalty": 1.0, "max_new_tokens": 2048},  # 4: max explore
+        ]
+
+        last_error: Exception | None = None
+        last_token_count = 0
+
+        for attempt in range(max_retries):
+            # Mutate text on retries to break degenerate LLM patterns
+            attempt_chunk = self._mutate_chunk_text(chunk, attempt)
+
+            # Build generation config for this attempt
+            overrides = retry_schedule[attempt] if attempt < len(retry_schedule) else retry_schedule[-1]
+            if overrides:
+                try:
+                    from lmdeploy import GenerationConfig
+                    gen_config = GenerationConfig(
+                        top_p=overrides.get("top_p", base_gen_config.top_p),
+                        top_k=overrides.get("top_k", base_gen_config.top_k),
+                        temperature=overrides.get("temperature", base_gen_config.temperature),
+                        max_new_tokens=overrides.get("max_new_tokens", base_gen_config.max_new_tokens),
+                        repetition_penalty=overrides.get("repetition_penalty", base_gen_config.repetition_penalty),
+                        do_sample=True,
+                        min_p=overrides.get("min_p", base_gen_config.min_p),
+                    )
+                except Exception:
+                    gen_config = base_gen_config
+            else:
+                gen_config = base_gen_config
+
+            # --- Step 1: LLM inference ---
+            try:
+                formatted_prompt = codec.format_prompt(attempt_chunk, context_tokens, None)
+                response = pipe([formatted_prompt], gen_config=gen_config, do_preprocess=False)
+                llm_output = response[0].text if response else ""
+            except Exception as exc:
+                last_error = exc
+                notes.append(
+                    f"Chunk retry {attempt + 1}/{max_retries} LLM lỗi: {type(exc).__name__}: {exc}"
+                )
+                continue
+
+            # --- Step 2: Validate token count ---
+            token_count = self._count_speech_tokens(llm_output)
+            last_token_count = token_count
+
+            if token_count < min_speech_tokens:
+                notes.append(
+                    f"Chunk retry {attempt + 1}/{max_retries}: LLM trả về {token_count} speech token "
+                    f"(cần ≥{min_speech_tokens})."
+                )
+                continue  # retry with next config
+
+            # --- Step 3: Decode tokens to audio (separate try/except for ONNX) ---
+            try:
+                audio = codec.decode(llm_output, context_tokens)
+            except Exception as exc:
+                last_error = exc
+                notes.append(
+                    f"Chunk retry {attempt + 1}/{max_retries} decode lỗi ({token_count} tokens): "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                # Raise min threshold for next attempt since tokens were insufficient
+                min_speech_tokens = max(min_speech_tokens, token_count + 5)
+                continue
+
+            # --- Step 4: Apply fade in/out ---
+            try:
+                from mira.model import apply_fade_in_out
+                sample_rate = 48000
+                fade_in_samples = int(10 * sample_rate / 1000)
+                fade_out_samples = int(50 * sample_rate / 1000)
+                audio = apply_fade_in_out(audio, fade_in_samples, fade_out_samples)
+            except Exception:
+                pass  # fade is cosmetic, don't fail on it
+
+            if attempt > 0:
+                notes.append(f"Chunk thành công sau {attempt + 1} lần thử.")
+            return audio, notes
+
+        # All retries exhausted
+        raise TTSError(
+            f"ViRa sinh audio thất bại sau {max_retries} lần thử. "
+            f"LLM chỉ trả về {last_token_count} speech token (cần ≥{min_speech_tokens}). "
+            f"Lỗi cuối: {last_error}. "
+            "Nguyên nhân thường là audio tham chiếu quá ngắn, có khoảng lặng lớn, "
+            "hoặc chunk văn bản khiến model không sinh được token hợp lệ. "
+            "Hãy thử: (1) đổi audio tham chiếu dài 3-10s, nói rõ; "
+            "(2) rút ngắn câu văn; (3) tách thành nhiều câu ngắn hơn."
+        )
+
     def _synthesize_with_vira(
         self,
         *,
@@ -543,28 +706,97 @@ class TTSStudioService:
                 "ViRa encode ra context token rỗng từ audio tham chiếu. Hãy đổi sang WAV mono, 48kHz hoặc dùng đoạn nói 3-10 giây rõ hơn."
             )
 
+        # Also validate context_tokens is a non-empty string with actual token patterns
+        if isinstance(context_tokens, str):
+            ctx_token_count = len(re.findall(r"context_token_\d+", context_tokens))
+            if ctx_token_count == 0:
+                raise TTSError(
+                    "ViRa encode ra context token string rỗng (0 context_token pattern). "
+                    "Audio tham chiếu có thể quá ngắn hoặc gần im lặng. "
+                    "Hãy dùng WAV mono, 3-10 giây nói rõ ràng."
+                )
+
         chunks = vira_split_text(text) if vira_split_text else _split_text_for_tts(text, max_chars=180)
         chunks = [chunk for chunk in chunks if chunk.strip()]
         if not chunks:
             raise TTSError("Không có câu hợp lệ để ViRa sinh audio.")
 
         chunk_waves: list[np.ndarray] = []
+        all_notes: list[str] = []
+        skipped_chunks: list[int] = []
+
         for index, chunk in enumerate(chunks):
             try:
-                audio = model.generate(chunk, context_tokens)
-            except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(
-                    "ViRa sinh audio thất bại: "
-                    f"{exc}. Nguyên nhân thường là audio tham chiếu quá ngắn, có khoảng lặng lớn, hoặc chunk sinh ra token rỗng."
-                ) from exc
+                audio, chunk_notes = self._vira_generate_safe(
+                    model, chunk, context_tokens,
+                    max_retries=5,
+                    min_speech_tokens=10,
+                )
+                all_notes.extend(chunk_notes)
+            except TTSError as chunk_exc:
+                # Fallback: try splitting this failed chunk into smaller sub-chunks
+                sub_chunks = _split_text_for_tts(chunk, max_chars=80)
+                sub_chunks = [sc for sc in sub_chunks if sc.strip()]
+                sub_success = False
+
+                if len(sub_chunks) > 1:
+                    all_notes.append(
+                        f"Chunk {index + 1}/{len(chunks)} thất bại → tách thành {len(sub_chunks)} sub-chunk."
+                    )
+                    for si, sub_chunk in enumerate(sub_chunks):
+                        try:
+                            sub_audio, sub_notes = self._vira_generate_safe(
+                                model, sub_chunk, context_tokens,
+                                max_retries=3,
+                                min_speech_tokens=10,
+                            )
+                            all_notes.extend(sub_notes)
+                            sub_np = _to_numpy_audio(sub_audio)
+                            if sub_np.size > 0:
+                                chunk_waves.append(sub_np)
+                                sub_success = True
+                            else:
+                                all_notes.append(
+                                    f"  Sub-chunk {si + 1}/{len(sub_chunks)} trả về audio rỗng."
+                                )
+                        except TTSError:
+                            all_notes.append(
+                                f"  Sub-chunk {si + 1}/{len(sub_chunks)} thất bại, bị bỏ qua."
+                            )
+
+                if sub_success:
+                    continue
+
+                # If this is the only chunk and sub-chunking also failed, re-raise
+                if len(chunks) == 1:
+                    raise
+                # For multi-chunk: skip this chunk and continue
+                skipped_chunks.append(index + 1)
+                all_notes.append(
+                    f"Chunk {index + 1}/{len(chunks)} bị bỏ qua do LLM không sinh được speech token hợp lệ."
+                )
+                continue
 
             audio_np = _to_numpy_audio(audio)
             if audio_np.size == 0:
-                raise TTSError(
-                    f"ViRa trả về audio rỗng ở chunk {index + 1}. "
-                    "Hãy thử rút ngắn câu, đổi audio tham chiếu sang WAV mono rõ tiếng, hoặc tách đoạn văn thành các câu ngắn hơn."
-                )
+                if len(chunks) == 1:
+                    raise TTSError(
+                        f"ViRa trả về audio rỗng ở chunk {index + 1}. "
+                        "Hãy thử rút ngắn câu, đổi audio tham chiếu sang WAV mono rõ tiếng, "
+                        "hoặc tách đoạn văn thành các câu ngắn hơn."
+                    )
+                skipped_chunks.append(index + 1)
+                all_notes.append(f"Chunk {index + 1}/{len(chunks)} trả về audio rỗng, bị bỏ qua.")
+                continue
+
             chunk_waves.append(audio_np)
+
+        if not chunk_waves:
+            raise TTSError(
+                "ViRa không sinh được audio cho bất kỳ chunk nào. "
+                "Hãy thử: (1) đổi audio tham chiếu dài 3-10s, nói rõ; "
+                "(2) rút ngắn câu văn; (3) dùng audio WAV mono 48kHz."
+            )
 
         audio_np = _crossfade_join(chunk_waves, sample_rate=48000, duration_ms=65)
         sample_rate = 48000
@@ -577,8 +809,11 @@ class TTSStudioService:
         ]
         if len(chunks) > 1:
             notes.append(f"ViRa đã sinh tuần tự {len(chunks)} chunk rồi crossfade để giảm lỗi codec và rớt shape.")
+        if skipped_chunks:
+            notes.append(f"⚠️ Đã bỏ qua {len(skipped_chunks)} chunk lỗi (chunk {', '.join(map(str, skipped_chunks))}).")
         if reference_text:
             notes.append("ViRa hiện không dùng transcript tham chiếu; trường này chỉ để người dùng đối chiếu.")
+        notes.extend(all_notes)
 
         return SynthesisResult(
             engine_id="vira",
