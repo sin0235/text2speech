@@ -49,6 +49,7 @@ Biến môi trường hỗ trợ:
 - `F5_CKPT_FILE`
 - `F5_VOCAB_FILE`
 - `F5_VOCODER_LOCAL_PATH`
+- `TTS_EXPOSE_F5=1` nếu muốn vẫn hiện card F5 trên UI dù engine này chưa sẵn sàng
 
 ### VieNeu-TTS
 

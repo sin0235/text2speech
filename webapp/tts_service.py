@@ -519,6 +519,7 @@ class TTSStudioService:
         self.default_engine = _normalize_engine_id(os.getenv("TTS_DEFAULT_ENGINE", "vieneu"))
         self.vieneu_mode = (os.getenv("VIENEU_MODE", "standard") or "standard").strip().lower() or "standard"
         self.vieneu_mode_choices = os.getenv("VIENEU_MODE_CHOICES", "").strip()
+        self.expose_f5 = _env_flag("TTS_EXPOSE_F5", default=False)
 
         self.f5_model_name = os.getenv("F5_MODEL_NAME", "F5TTS_v1_Base")
         self.f5_ckpt_file = os.getenv("F5_CKPT_FILE", "").strip()
@@ -759,10 +760,11 @@ class TTSStudioService:
         }
 
     def get_engine_cards(self) -> list[EngineCard]:
-        return [
-            self._vieneu_card(),
-            self._f5_card(),
-        ]
+        cards = [self._vieneu_card()]
+        f5_card = self._f5_card()
+        if f5_card.ready or self.expose_f5:
+            cards.append(f5_card)
+        return cards
 
     def get_engine_card(self, engine_id: str) -> EngineCard:
         engine = _normalize_engine_id(engine_id)

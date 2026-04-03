@@ -95,6 +95,16 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertEqual(service.default_engine, "vieneu")
         self.assertEqual(service.vieneu_mode, "standard")
 
+    def test_offline_f5_is_hidden_by_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+                service._probe_f5_import = lambda: (False, "Chưa cài gói `f5_tts`.")
+
+                cards = service.get_engine_cards()
+
+        self.assertEqual([card.id for card in cards], ["vieneu"])
+
     def test_vieneu_standard_requires_reference_text_before_inference(self) -> None:
         with patch.dict(os.environ, {"VIENEU_MODE": "standard"}, clear=True):
             with tempfile.TemporaryDirectory() as tmpdir:
