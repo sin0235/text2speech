@@ -4,7 +4,12 @@ import unittest
 
 import numpy as np
 
-from webapp.tts_service import _fallback_cleanup_vira_text, _normalize_reference_wave
+from webapp.tts_service import (
+    _fallback_cleanup_vira_text,
+    _format_f5_import_error,
+    _map_import_name_to_package,
+    _normalize_reference_wave,
+)
 
 
 class TTSServiceHelperTest(unittest.TestCase):
@@ -30,6 +35,18 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertNotIn(")", cleaned)
         self.assertTrue(cleaned.endswith((".", "!", "?", ",")))
         self.assertIn("AI, ML", cleaned)
+
+    def test_map_import_name_to_package_handles_hydra(self) -> None:
+        self.assertEqual(_map_import_name_to_package("hydra"), "hydra-core")
+
+    def test_format_f5_import_error_mentions_reinstall_hint(self) -> None:
+        exc = ModuleNotFoundError("No module named 'cached_path'", name="cached_path")
+
+        message = _format_f5_import_error(exc)
+
+        self.assertIn("cached_path", message)
+        self.assertIn("f5-tts", message)
+        self.assertIn("--no-deps", message)
 
 
 if __name__ == "__main__":

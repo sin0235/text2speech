@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import os
 import re
@@ -57,6 +58,33 @@ def _parse_named_choices(raw: str) -> list[tuple[str, str]]:
 def _sanitize_cache_token(value: str, fallback: str = "default") -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", (value or "").strip()).strip("-._")
     return cleaned[:80] or fallback
+
+
+def _map_import_name_to_package(module_name: str) -> str:
+    return {
+        "hydra": "hydra-core",
+        "cached_path": "cached_path",
+        "omegaconf": "omegaconf",
+        "pydub": "pydub",
+        "pypinyin": "pypinyin",
+        "rjieba": "rjieba",
+        "transformers_stream_generator": "transformers-stream-generator",
+        "unidecode": "unidecode",
+        "x_transformers": "x-transformers",
+    }.get((module_name or "").strip(), (module_name or "").strip())
+
+
+def _format_f5_import_error(exc: Exception) -> str:
+    if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None):
+        missing_module = exc.name.strip()
+        package_name = _map_import_name_to_package(missing_module)
+        return (
+            f"F5-TTS đã được cài nhưng thiếu dependency `{missing_module}`. "
+            f"Hãy chạy `python -m pip install -U f5-tts {package_name}` rồi khởi động lại ứng dụng. "
+            "Nếu đang dùng notebook Colab của repo này, hãy dùng cell cài dependencies bản mới "
+            "vì bản cũ cài `f5-tts` với `--no-deps`."
+        )
+    return f"Không thể import F5-TTS: {exc}"
 
 
 def _split_text_for_tts(text: str, max_chars: int = 220) -> list[str]:
@@ -457,6 +485,7 @@ class TTSStudioService:
             "vira": Lock(),
         }
         self._loaded_models: dict[str, Any] = {}
+        self._f5_import_probe: tuple[bool, str | None] | None = None
 
     def _display_path(self, path: Path) -> str:
         try:
@@ -467,6 +496,23 @@ class TTSStudioService:
     @staticmethod
     def _make_f5_model_key(model_name: str) -> str:
         return f"name::{model_name.strip()}"
+
+    def _probe_f5_import(self) -> tuple[bool, str | None]:
+        if self._f5_import_probe is not None:
+            return self._f5_import_probe
+
+        if importlib.util.find_spec("f5_tts") is None:
+            self._f5_import_probe = (False, "Chưa cài gói `f5_tts`.")
+            return self._f5_import_probe
+
+        try:
+            importlib.import_module("f5_tts.api")
+        except Exception as exc:
+            self._f5_import_probe = (False, _format_f5_import_error(exc))
+            return self._f5_import_probe
+
+        self._f5_import_probe = (True, None)
+        return self._f5_import_probe
 
     def _make_vira_path_key(self, path: Path | str) -> str:
         resolved = Path(path)
@@ -824,12 +870,19 @@ class TTSStudioService:
         return prepared_path, duration_seconds, prep_stats
 
     def _f5_card(self) -> EngineCard:
-        module_ok = importlib.util.find_spec("f5_tts") is not None
-        summary = "Sẵn sàng dùng zero-shot voice cloning với F5-TTS." if module_ok else "Chưa cài gói `f5_tts`."
-        warning = None if module_ok else (
-            "Engine F5-TTS chưa khả dụng trong môi trường này. "
-            "Cài upstream F5-TTS rồi khởi động lại ứng dụng."
-        )
+        module_ok, import_warning = self._probe_f5_import()
+        if module_ok:
+            summary = "Sẵn sàng dùng zero-shot voice cloning với F5-TTS."
+            warning = None
+        elif import_warning == "Chưa cài gói `f5_tts`.":
+            summary = import_warning
+            warning = (
+                "Engine F5-TTS chưa khả dụng trong môi trường này. "
+                "Cài upstream F5-TTS rồi khởi động lại ứng dụng."
+            )
+        else:
+            summary = "F5-TTS cài chưa đủ dependency."
+            warning = import_warning
         return EngineCard(
             id="f5",
             label="F5-TTS",
@@ -899,7 +952,7 @@ class TTSStudioService:
             try:
                 from f5_tts.api import F5TTS
             except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(f"Không thể import F5-TTS: {exc}") from exc
+                raise TTSError(_format_f5_import_error(exc)) from exc
 
             kwargs: dict[str, Any] = {
                 "model": model_spec["model_name"],
