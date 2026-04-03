@@ -20,10 +20,10 @@ Notebook Colab để clone hoặc pull repo, chạy webapp và mở Cloudflare t
 
 - `colab_tts_cloudflare.ipynb`
 
-Nếu gặp lỗi `libtorchaudio.so: undefined symbol: torch_list_push_back`, hãy dùng notebook mới nhất:
+Nếu gặp lỗi kiểu `Codec 'neuphonic/distill-neucodec' requires PyTorch`, `torch >= 2.11.0`, hoặc `libtorchaudio.so: undefined symbol: torch_list_push_back`, hãy dùng notebook mới nhất:
 
-- notebook đã pin `torch==2.6.0`, `torchvision==0.21.0`, `torchaudio==2.6.0`
-- notebook cũng uninstall bộ `torch*` cũ trước khi cài lại để tránh lệch binary ABI
+- notebook đã chuyển sang stack `torch>=2.11.0`, `torchaudio>=2.11.0` và index CUDA 12.8 (`cu128`) theo hướng upstream của VieNeu
+- notebook cũng uninstall lại bộ `torch/neucodec/vieneu` cũ trước khi cài để tránh lệch binary ABI
 - notebook hiện mặc định `TTS_DEFAULT_ENGINE=vieneu`, `VIENEU_MODE=standard`, và không cài F5 nếu bạn không bật lại thủ công
 
 ## Engine setup
@@ -66,6 +66,7 @@ Khuyến nghị:
 
 - giữ `VIENEU_MODE=standard` nếu ưu tiên chất lượng và clone giọng sát hơn
 - chỉ đổi về `turbo` nếu runtime không đủ dependency cho Standard hoặc không có GPU
+- với Colab, rerun lại cell install nếu trước đó runtime từng cài torch 2.6/cu124 hoặc notebook cũ
 - dùng audio tham chiếu dài khoảng 3-8 giây, một người nói, ít nhạc nền
 - transcript tham chiếu là bắt buộc với `standard` và `fast`
 

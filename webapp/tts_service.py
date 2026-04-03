@@ -123,6 +123,29 @@ def _format_vieneu_import_error(exc: Exception) -> str:
     return f"Không thể import VieNeu-TTS: {exc}"
 
 
+def _format_vieneu_runtime_error(exc: Exception) -> str:
+    normalized = re.sub(r"\s+", " ", str(exc or "")).strip()
+    lowered = normalized.lower()
+    if any(
+        marker in lowered
+        for marker in (
+            "requires pytorch",
+            "install torch via: pip install vieneu[gpu]",
+            "torch >= 2.11.0",
+            "skipping import of cpp extensions",
+            "remote mode",
+            "neucodec-onnx-decoder-int8",
+        )
+    ):
+        return (
+            "VieNeu Standard local không khởi tạo được với stack PyTorch hiện tại. "
+            "Rerun cell cài dependencies mới của notebook để cài lại `torch`/`torchaudio` theo CUDA 12.8 "
+            "và `vieneu[gpu]`, rồi khởi động lại webapp. "
+            "Nếu runtime không có GPU NVIDIA, hãy đổi `VIENEU_MODE=turbo`."
+        )
+    return normalized
+
+
 def _normalize_engine_id(value: str, default: str = "vieneu") -> str:
     normalized = (value or "").strip().lower()
     if normalized == "vira":
@@ -897,9 +920,13 @@ class TTSStudioService:
         mode_name = self.vieneu_mode
         requires_reference_text = _vieneu_mode_requires_reference_text(mode_name)
         module_ok, import_warning = self._probe_vieneu_import()
-        if module_ok:
+        runtime_warning = self._vieneu_runtime_stack_warning(mode_name) if module_ok else None
+        if module_ok and not runtime_warning:
             summary = f"Sẵn sàng dùng VieNeu-TTS {mode_name} cho tiếng Việt 24kHz."
             warning = None
+        elif runtime_warning:
+            summary = f"VieNeu-TTS {mode_name} chưa sẵn sàng với runtime hiện tại."
+            warning = runtime_warning
         elif import_warning == "Chưa cài gói `vieneu`.":
             summary = import_warning
             warning = (
@@ -939,7 +966,7 @@ class TTSStudioService:
                 else "Audio tham chiếu 3-8 giây, một người nói, ít nhạc nền. Transcript tham chiếu không bắt buộc."
             ),
             supports_reference_text=requires_reference_text,
-            ready=module_ok,
+            ready=bool(module_ok and not runtime_warning),
             summary=summary,
             warning=warning,
             metadata={
@@ -992,7 +1019,7 @@ class TTSStudioService:
             try:
                 instance = Vieneu(mode=model_spec["mode_name"])
             except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(f"Khởi tạo VieNeu-TTS thất bại: {exc}") from exc
+                raise TTSError(f"Khởi tạo VieNeu-TTS thất bại: {_format_vieneu_runtime_error(exc)}") from exc
 
             self._loaded_models[cache_key] = instance
             return instance
@@ -1621,3 +1648,38 @@ class TTSStudioService:
             return bool(torch.cuda.is_available())
         except Exception:
             return False
+
+    @staticmethod
+    def _torch_version_label() -> str | None:
+        if importlib.util.find_spec("torch") is None:
+            return None
+        try:
+            import torch
+
+            return str(getattr(torch, "__version__", "") or "").strip() or None
+        except Exception:
+            return None
+
+    def _vieneu_runtime_stack_warning(self, mode_name: str) -> str | None:
+        if not _vieneu_mode_requires_reference_text(mode_name):
+            return None
+
+        version_label = self._torch_version_label()
+        if not version_label:
+            return (
+                f"VieNeu {mode_name} cần stack PyTorch GPU của upstream. "
+                "Notebook hiện tại phải cài lại `vieneu[gpu]` và torch/torchaudio mới hơn trước khi generate."
+            )
+
+        match = re.match(r"^\s*(\d+)\.(\d+)", version_label)
+        if match:
+            major = int(match.group(1))
+            minor = int(match.group(2))
+            if (major, minor) < (2, 11):
+                return (
+                    f"VieNeu {mode_name} cần torch >= 2.11 theo stack hiện tại của upstream, "
+                    f"nhưng runtime đang có torch {version_label}. "
+                    "Rerun notebook mới để cài lại torch/torchaudio theo CUDA 12.8."
+                )
+
+        return None

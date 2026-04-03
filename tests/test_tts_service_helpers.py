@@ -15,6 +15,7 @@ from webapp.tts_service import (
     _format_f5_import_error,
     _format_f5_runtime_error,
     _format_vieneu_import_error,
+    _format_vieneu_runtime_error,
     _map_import_name_to_package,
     _normalize_engine_id,
     _normalize_reference_wave,
@@ -67,6 +68,17 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertIn("vieneu", message)
         self.assertIn("llama-cpp-python", message)
 
+    def test_format_vieneu_runtime_error_mentions_torch_reinstall(self) -> None:
+        exc = RuntimeError(
+            "Codec 'neuphonic/distill-neucodec' requires PyTorch. Or install torch via: pip install vieneu[gpu]"
+        )
+
+        message = _format_vieneu_runtime_error(exc)
+
+        self.assertIn("PyTorch hiện tại", message)
+        self.assertIn("CUDA 12.8", message)
+        self.assertIn("VIENEU_MODE=turbo", message)
+
     def test_format_f5_runtime_error_shortens_torchaudio_ffmpeg_failure(self) -> None:
         exc = RuntimeError(
             "Could not load libtorchaudio codec. Likely causes: FFmpeg is not properly installed in your environment."
@@ -104,6 +116,18 @@ class TTSServiceHelperTest(unittest.TestCase):
                 cards = service.get_engine_cards()
 
         self.assertEqual([card.id for card in cards], ["vieneu"])
+
+    def test_vieneu_standard_card_is_not_ready_on_old_torch(self) -> None:
+        with patch.dict(os.environ, {"VIENEU_MODE": "standard"}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+                service._probe_vieneu_import = lambda: (True, None)
+                service._torch_version_label = lambda: "2.6.0+cu124"
+
+                card = service.get_engine_card("vieneu")
+
+        self.assertFalse(card.ready)
+        self.assertIn("torch >= 2.11", card.warning or "")
 
     def test_vieneu_standard_requires_reference_text_before_inference(self) -> None:
         with patch.dict(os.environ, {"VIENEU_MODE": "standard"}, clear=True):
