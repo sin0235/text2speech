@@ -184,6 +184,41 @@ def _split_failed_vira_chunk(text: str) -> list[str]:
     return [normalized]
 
 
+def _fallback_cleanup_vira_text(
+    text: str,
+    *,
+    aggressive: bool = False,
+    ensure_terminal: bool = True,
+) -> str:
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    if not cleaned:
+        return ""
+
+    replacements = [
+        ("...", ", "),
+        ("…", ", "),
+        ("—", "-"),
+        ("–", "-"),
+        ("\u00a0", " "),
+    ]
+    for old, new in replacements:
+        cleaned = cleaned.replace(old, new)
+
+    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"([,.;:!?])(?=[^\s\d])", r"\1 ", cleaned)
+
+    if aggressive:
+        cleaned = re.sub(r"[\"“”`*_#<>\[\]{}()]+", " ", cleaned)
+        cleaned = re.sub(r"\s*[|/]\s*", ", ", cleaned)
+        cleaned = re.sub(r"\s*[-:;]\s*", ", ", cleaned)
+        cleaned = re.sub(r",\s*,+", ", ", cleaned)
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
+    if ensure_terminal and cleaned and cleaned[-1] not in ".!?,":
+        cleaned += "."
+    return cleaned
+
+
 def _crossfade_join(waves: list[np.ndarray], sample_rate: int, duration_ms: int = 80) -> np.ndarray:
     if not waves:
         return np.zeros(1, dtype=np.float32)
@@ -236,6 +271,20 @@ def _numel(obj: Any) -> int | None:
     return None
 
 
+def _normalize_reference_wave(audio_np: np.ndarray, target_peak: float = 0.92) -> np.ndarray:
+    normalized = np.asarray(audio_np, dtype=np.float32).reshape(-1)
+    if normalized.size == 0:
+        return normalized
+
+    normalized = normalized - float(np.mean(normalized))
+    peak = float(np.max(np.abs(normalized))) if normalized.size else 0.0
+    if peak <= 1e-6:
+        raise TTSError("Audio tham chiếu gần như im lặng. Hãy dùng file có tiếng nói rõ hơn.")
+
+    normalized = normalized / peak
+    return np.clip(normalized * float(target_peak), -1.0, 1.0).astype(np.float32)
+
+
 def _load_audio_mono_float(path: Path, target_sr: int) -> tuple[np.ndarray, int]:
     try:
         audio, sr = sf.read(path, always_2d=False)
@@ -274,7 +323,7 @@ def _load_audio_mono_float(path: Path, target_sr: int) -> tuple[np.ndarray, int]
         audio_np = librosa.resample(audio_np, orig_sr=sr, target_sr=target_sr)
         sr = target_sr
 
-    audio_np = np.clip(audio_np / max(peak, 1.0), -1.0, 1.0).astype(np.float32)
+    audio_np = _normalize_reference_wave(audio_np)
     return audio_np, sr
 
 
@@ -1017,38 +1066,65 @@ class TTSStudioService:
         return len(re.findall(r"speech_token_\d+", llm_response or ""))
 
     @staticmethod
-    def _mutate_chunk_text(chunk: str, attempt: int) -> str:
+    def _llm_output_preview(llm_response: str, limit: int = 160) -> str:
+        compact = re.sub(r"\s+", " ", llm_response or "").strip()
+        if not compact:
+            return "trống"
+        if len(compact) > limit:
+            return compact[:limit].rstrip() + "..."
+        return compact
+
+    @staticmethod
+    def _normalize_vira_retry_text(
+        chunk: str,
+        *,
+        aggressive: bool = False,
+        ensure_terminal: bool = True,
+    ) -> str:
+        cleaned = _fallback_cleanup_vira_text(chunk, aggressive=False, ensure_terminal=False)
+        if not cleaned:
+            return ""
+
+        try:
+            from mira.utils import normalize_vietnamese, punc_norm
+        except Exception:
+            normalized = cleaned
+        else:
+            try:
+                normalized = normalize_vietnamese(cleaned)
+                normalized = punc_norm(normalized)
+            except Exception:
+                normalized = cleaned
+
+        return _fallback_cleanup_vira_text(
+            normalized,
+            aggressive=aggressive,
+            ensure_terminal=ensure_terminal,
+        )
+
+    def _mutate_chunk_text(self, chunk: str, attempt: int) -> str:
         """Slightly modify chunk text on retries to nudge the LLM.
 
         Sometimes the LLM gets stuck on certain text patterns and produces
-        zero or too few speech tokens.  Small formatting changes can break
-        the degenerate generation pattern without changing meaning.
+        zero or too few speech tokens. Small cleanup steps that stay close to
+        ViRa's own preprocessing help more than adding meta-instructions.
         """
-        chunk = chunk.strip()
+        chunk = re.sub(r"\s+", " ", chunk or "").strip()
         if attempt <= 0:
             return chunk
         if attempt == 1:
-            # Ensure trailing punctuation
-            if chunk and chunk[-1] not in ".!?;:":
-                return chunk + "."
-            return chunk
+            return self._normalize_vira_retry_text(chunk, aggressive=False, ensure_terminal=True) or chunk
         if attempt == 2:
-            # Add a soft leading prompt word
-            if not chunk.startswith("Đọc:"):
-                return f"Đọc: {chunk}"
-            return chunk
+            return self._normalize_vira_retry_text(chunk, aggressive=True, ensure_terminal=True) or chunk
         if attempt == 3:
-            # Remove trailing punctuation to try a different prompt shape
-            if chunk and chunk[-1] in ".!?;:":
-                return chunk[:-1]
-            return chunk + "."
-        # attempt >= 4: add explicit comma break
-        words = chunk.split()
+            return self._normalize_vira_retry_text(chunk, aggressive=True, ensure_terminal=False) or chunk
+        normalized = self._normalize_vira_retry_text(chunk, aggressive=True, ensure_terminal=True) or chunk
+        words = normalized.split()
         mid = len(words) // 2
-        if mid > 0 and "," not in chunk:
+        if mid > 0 and "," not in normalized:
             words.insert(mid, ",")
             return " ".join(words)
-        return chunk
+        return normalized
 
     def _vira_generate_with_recovery(
         self,
@@ -1157,6 +1233,7 @@ class TTSStudioService:
         last_error: Exception | None = None
         last_token_count = 0
         best_token_count = 0
+        last_llm_preview = "trống"
 
         for attempt in range(max_retries):
             # Mutate text on retries to break degenerate LLM patterns
@@ -1194,6 +1271,7 @@ class TTSStudioService:
                 continue
 
             # --- Step 2: Validate token count ---
+            last_llm_preview = self._llm_output_preview(llm_output)
             token_count = self._count_speech_tokens(llm_output)
             last_token_count = token_count
             best_token_count = max(best_token_count, token_count)
@@ -1238,10 +1316,15 @@ class TTSStudioService:
             if last_error is not None
             else "không có exception từ model, nhưng LLM không sinh speech token hợp lệ"
         )
+        llm_preview_text = (
+            "LLM output cuối trống."
+            if last_llm_preview == "trống"
+            else f"LLM output cuối: {last_llm_preview}."
+        )
         raise TTSError(
             f"ViRa sinh audio thất bại sau {max_retries} lần thử. "
             f"LLM trả tối đa {best_token_count} speech token; lần cuối là {last_token_count} (cần ≥{min_speech_tokens}). "
-            f"Lỗi cuối: {last_error_text}. "
+            f"Lỗi cuối: {last_error_text}. {llm_preview_text} "
             "Nguyên nhân thường là audio tham chiếu quá ngắn, có khoảng lặng lớn, "
             "hoặc chunk văn bản khiến model không sinh được token hợp lệ. "
             "Hãy thử: (1) đổi audio tham chiếu dài 3-10s, nói rõ; "
@@ -1276,6 +1359,7 @@ class TTSStudioService:
                 "ViRa encode ra context token rỗng từ audio tham chiếu. Hãy đổi sang WAV mono, 48kHz hoặc dùng đoạn nói 3-10 giây rõ hơn."
             )
 
+        ctx_token_count: int | None = context_numel
         # Also validate context_tokens is a non-empty string with actual token patterns
         if isinstance(context_tokens, str):
             ctx_token_count = len(re.findall(r"context_token_\d+", context_tokens))
@@ -1309,9 +1393,14 @@ class TTSStudioService:
                     f"Chunk {index + 1}/{len(chunks)}: {note}"
                     for note in chunk_notes
                 )
-            except TTSError:
+            except TTSError as exc:
                 if len(chunks) == 1:
-                    raise
+                    activity = float(ref_prep_stats.get("activity_ratio_after_trim", ref_prep_stats.get("activity_ratio", 0.0)))
+                    ctx_hint = str(ctx_token_count) if ctx_token_count is not None else "không rõ"
+                    raise TTSError(
+                        f"{exc} Audio tham chiếu sau chuẩn hóa dài {ref_duration:.2f}s, "
+                        f"mật độ giọng khoảng {activity:.2f}, context token {ctx_hint}."
+                    ) from exc
                 skipped_chunks.append(index + 1)
                 all_notes.append(
                     f"Chunk {index + 1}/{len(chunks)} bị bỏ qua do LLM không sinh được speech token hợp lệ."
@@ -1344,7 +1433,7 @@ class TTSStudioService:
 
         elapsed = time.perf_counter() - context_started
         notes = [
-            "ViRa dùng reference audio đã được chuẩn hóa về WAV mono 48kHz trước khi encode context token.",
+            "ViRa dùng reference audio đã được chuẩn hóa về WAV mono 48kHz và biên độ ổn định trước khi encode context token.",
             f"Audio tham chiếu sau chuẩn hóa dài khoảng {ref_duration:.2f}s.",
         ]
         if ref_prep_stats.get("trimmed"):
