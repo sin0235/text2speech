@@ -163,7 +163,7 @@
             </svg>
           </div>
           <div class="upload-title">Kéo thả hoặc bấm để chọn file</div>
-          <div class="upload-subtitle">WAV, MP3, FLAC, M4A, OGG. Tối ưu nhất: 3-12 giây.</div>
+          <div class="upload-subtitle">WAV, MP3, FLAC, M4A, OGG. Tối ưu nhất: 3-12 giây. Tối đa {{ max_upload_mb }} MB.</div>
           <div class="upload-file" id="uploadFileLabel">Chưa có file nào được chọn</div>
         </label>
       </div>
@@ -289,6 +289,8 @@
   let latestAudioUrl = '';
   let latestAudioName = '';
   const ENGINE_CONFIG = {{ engine_cards_payload|tojson }};
+  const MAX_UPLOAD_MB = {{ max_upload_mb|tojson }};
+  const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
   const textInput = document.getElementById('textInput');
   const textCount = document.getElementById('textCount');
@@ -361,6 +363,32 @@
     textInput.value = text;
     updateCount();
     textInput.focus();
+  }
+
+  async function parseApiResponse(response) {
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+
+    if (contentType.includes('application/json')) {
+      try {
+        return await response.json();
+      } catch (error) {
+        console.error('Không parse được JSON từ API.', error);
+      }
+    }
+
+    const rawText = (await response.text()).trim();
+    if (response.status === 413) {
+      return {
+        ok: false,
+        error: `File upload quá lớn. Giới hạn hiện tại là ${MAX_UPLOAD_MB} MB.`,
+      };
+    }
+
+    const fallbackError = rawText && !rawText.startsWith('<') ? rawText : `API trả về lỗi ${response.status}.`;
+    return {
+      ok: false,
+      error: fallbackError,
+    };
   }
 
   function resetStudio() {
@@ -470,6 +498,11 @@
       alert('Vui lòng chọn audio tham chiếu trước khi generate.');
       return;
     }
+    const selectedFile = referenceAudio.files[0];
+    if (selectedFile && selectedFile.size > MAX_UPLOAD_BYTES) {
+      alert(`File audio vượt quá ${MAX_UPLOAD_MB} MB. Hãy cắt ngắn file rồi thử lại.`);
+      return;
+    }
 
     const overlay = document.getElementById('loadingOverlay');
     const button = document.getElementById('generateBtn');
@@ -481,15 +514,15 @@
         method: 'POST',
         body: new FormData(this),
       });
-      const payload = await response.json();
-      if (!payload.ok) {
-        alert(payload.error || 'Không thể sinh audio.');
+      const payload = await parseApiResponse(response);
+      if (!response.ok || !payload.ok) {
+        alert(payload.error || `Không thể sinh audio (HTTP ${response.status}).`);
         return;
       }
       renderResult(payload);
       renderHistory(payload);
     } catch (error) {
-      alert('Lỗi kết nối khi gọi API TTS.');
+      alert('Không thể kết nối tới API TTS. Hãy kiểm tra server Flask hoặc tunnel hiện tại.');
       console.error(error);
     } finally {
       overlay.style.display = 'none';

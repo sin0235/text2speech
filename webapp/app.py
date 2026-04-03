@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 try:
     from webapp.tts_service import TTSError, TTSStudioService
@@ -15,6 +16,7 @@ except ImportError:  # pragma: no cover
 ROOT = Path(__file__).resolve().parent.parent
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
+MAX_UPLOAD_MB = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
 
 studio = TTSStudioService(ROOT)
 
@@ -68,12 +70,39 @@ def _pick_default_engine(engine_cards: list) -> str:
     return engine_cards[0].id if engine_cards else "vira"
 
 
+def _is_api_request() -> bool:
+    return request.path.startswith("/api/")
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(exc: RequestEntityTooLarge):
+    if not _is_api_request():
+        return exc
+    return (
+        jsonify(
+            {
+                "ok": False,
+                "error": f"File upload quá lớn. Giới hạn hiện tại là {MAX_UPLOAD_MB} MB.",
+            }
+        ),
+        413,
+    )
+
+
+@app.errorhandler(HTTPException)
+def handle_api_http_exception(exc: HTTPException):
+    if not _is_api_request():
+        return exc
+    return jsonify({"ok": False, "error": exc.description or exc.name}), exc.code or 500
+
+
 @app.route("/")
 def home():
     context = _base_context("home")
     context.update(
         examples=TEXT_EXAMPLES,
         reference_tips=REFERENCE_TIPS,
+        max_upload_mb=MAX_UPLOAD_MB,
         default_engine_id=_pick_default_engine(context["engine_cards"]),
         engine_cards_payload=[asdict(card) for card in context["engine_cards"]],
     )
