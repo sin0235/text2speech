@@ -21,16 +21,16 @@ MAX_UPLOAD_MB = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
 studio = TTSStudioService(ROOT)
 
 TEXT_EXAMPLES = [
-    "Xin chào, đây là bản demo chuyển văn bản thành giọng nói tiếng Việt bằng F5-TTS và VieNeu-TTS.",
+    "Xin chào, đây là bản demo chuyển văn bản thành giọng nói tiếng Việt bằng VieNeu-TTS Standard.",
     "Thông báo: lớp học xử lý ngôn ngữ tự nhiên sẽ bắt đầu lúc tám giờ sáng tại phòng A3.",
     "Hôm nay chúng ta sẽ thu voice-over cho landing page với tông giọng rõ, sáng và chuyên nghiệp.",
     "Chúc bạn có một ngày làm việc hiệu quả, nhẹ nhàng và nhiều năng lượng tích cực.",
 ]
 
 REFERENCE_TIPS = [
-    "Giữ audio tham chiếu dài khoảng 3 đến 12 giây, một người nói, không nhạc nền.",
-    "Nếu dùng F5-TTS, thêm transcript của câu mẫu sẽ giúp model bám giọng ổn định hơn.",
-    "VieNeu-TTS ổn nhất với câu mẫu 3-8 giây, nói liền mạch, ít khoảng lặng.",
+    "Giữ audio tham chiếu dài khoảng 3 đến 8 giây, một người nói, không nhạc nền.",
+    "Nếu dùng VieNeu Standard, bắt buộc nhập đúng transcript của câu đang có trong audio mẫu.",
+    "F5-TTS chỉ nên dùng khi bạn thật sự muốn thử engine phụ hoặc model khác.",
 ]
 
 SETUP_STEPS = [
@@ -39,12 +39,12 @@ SETUP_STEPS = [
         "body": "Dùng requirements tối thiểu của webapp để chạy giao diện và API upload / download audio.",
     },
     {
-        "title": "Bật F5-TTS",
-        "body": "Cài upstream F5-TTS, cấu hình checkpoint nếu cần, rồi để engine F5 load lazily khi người dùng bấm Generate.",
+        "title": "Bật VieNeu Standard",
+        "body": "Cài package `vieneu[gpu]`, để engine VieNeu Standard load lazily khi người dùng bấm Generate.",
     },
     {
-        "title": "Bật VieNeu",
-        "body": "Cài package `vieneu`, để engine VieNeu Turbo load lazily khi người dùng bấm Generate.",
+        "title": "Bật F5-TTS",
+        "body": "F5 là engine phụ. Chỉ cài upstream F5-TTS nếu bạn vẫn muốn thử thêm một nhánh voice cloning khác.",
     },
 ]
 

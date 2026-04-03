@@ -4,11 +4,11 @@
 <section class="hero-card">
   <div class="hero-copy">
     <div class="eyebrow">Blue-White Voice Cloning Workspace</div>
-    <h1>Text to speech tiếng Việt với <span>F5-TTS</span> và <span>VieNeu-TTS</span></h1>
+    <h1>Text to speech tiếng Việt với <span>VieNeu-TTS Standard</span> và <span>F5-TTS</span></h1>
     <p class="subtitle">
       Chuyển đoạn script tiếng Việt thành audio ngay trong giao diện hiện tại,
       giữ nguyên font, theme, motion và màu chủ đạo xanh trắng, nhưng đổi flow
-      sang một studio TTS tập trung cho voice cloning.
+      sang một studio TTS tập trung cho voice cloning, với VieNeu Standard là luồng mặc định.
     </p>
 
     <div class="hero-inline-stats">
@@ -132,11 +132,11 @@
           name="reference_text"
           rows="3"
           class="form-control"
-          placeholder="Nếu audio tham chiếu có lời nói rõ, nhập nguyên câu đó để F5-TTS giữ giọng ổn định hơn."
+          placeholder="VieNeu Standard cần transcript đúng với câu đang có trong audio tham chiếu."
         ></textarea>
         <div class="field-meta">
-          <span>Dùng mạnh nhất với F5-TTS</span>
-          <span>VieNeu Turbo sẽ bỏ qua trường này khi sinh audio</span>
+          <span id="referenceHintPrimary">Bắt buộc với VieNeu Standard/Fast</span>
+          <span id="referenceHintSecondary">Nhập nguyên câu có trong audio mẫu để VieNeu bám giọng và phát âm chính xác hơn</span>
         </div>
       </div>
 
@@ -182,7 +182,7 @@
         <div class="control-card">
           <label for="seedInput">Seed</label>
           <input id="seedInput" name="seed" class="form-control compact-input" type="number" min="0" placeholder="Tùy chọn" />
-          <div class="field-meta single-line">Giữ lại để dễ tái tạo kết quả F5-TTS.</div>
+          <div class="field-meta single-line">Chủ yếu hữu ích khi bạn chủ động chuyển sang F5-TTS.</div>
         </div>
       </div>
 
@@ -218,7 +218,7 @@
 
       {% if status_summary.ready_count == 0 %}
       <div class="empty-state small">
-        Chưa có engine nào khả dụng trong môi trường hiện tại. Cài F5-TTS hoặc VieNeu-TTS trước khi generate.
+        Chưa có engine nào khả dụng trong môi trường hiện tại. Cài VieNeu-TTS Standard trước khi generate.
       </div>
       {% endif %}
     </div>
@@ -243,7 +243,7 @@
       Kết quả mới nhất
     </div>
     <div id="resultState" class="empty-state">
-      Chưa có audio nào được sinh. Hãy nhập script, chọn engine và upload một câu tham chiếu.
+      Chưa có audio nào được sinh. Hãy nhập script, upload một câu tham chiếu và thêm transcript nếu dùng VieNeu Standard.
     </div>
     <div id="resultCard" class="result-card hidden">
       <div class="result-topline">
@@ -297,6 +297,9 @@
   const speedRange = document.getElementById('speedRange');
   const speedValue = document.getElementById('speedValue');
   const referenceAudio = document.getElementById('referenceAudio');
+  const referenceText = document.getElementById('referenceText');
+  const referenceHintPrimary = document.getElementById('referenceHintPrimary');
+  const referenceHintSecondary = document.getElementById('referenceHintSecondary');
   const uploadFileLabel = document.getElementById('uploadFileLabel');
   const modelSelect = document.getElementById('modelSelect');
   const customModelInput = document.getElementById('customModelInput');
@@ -309,9 +312,66 @@
     return selected ? selected.value : '{{ default_engine_id }}';
   }
 
-  function syncModelUi() {
+  function getSelectedModelSelection() {
     const engineId = getSelectedEngine();
-    const selection = (((engineConfigMap[engineId] || {}).metadata || {}).model_selection) || {};
+    return (((engineConfigMap[engineId] || {}).metadata || {}).model_selection) || {};
+  }
+
+  function getSelectedVieneuMode() {
+    const selection = getSelectedModelSelection();
+    if (getSelectedEngine() !== 'vieneu') {
+      return '';
+    }
+    if (modelSelect.value === '__custom__') {
+      return (customModelInput.value || '').trim().toLowerCase();
+    }
+    const options = selection.options || [];
+    const currentOption = options.find((item) => item.key === modelSelect.value)
+      || options.find((item) => item.key === (selection.default_key || 'default'));
+    return ((currentOption && currentOption.value) || selection.default_value || '').toLowerCase();
+  }
+
+  function selectedVieneuRequiresReferenceText() {
+    if (getSelectedEngine() !== 'vieneu') {
+      return false;
+    }
+    if (modelSelect.value === '__custom__') {
+      const customMode = getSelectedVieneuMode();
+      return !!customMode && !['turbo', 'turbo_gpu'].includes(customMode);
+    }
+    const selection = getSelectedModelSelection();
+    const options = selection.options || [];
+    const currentOption = options.find((item) => item.key === modelSelect.value)
+      || options.find((item) => item.key === (selection.default_key || 'default'));
+    return Boolean(currentOption && currentOption.requires_reference_text);
+  }
+
+  function syncReferenceTextUi() {
+    const engineId = getSelectedEngine();
+    const requiresTranscript = selectedVieneuRequiresReferenceText();
+
+    if (engineId === 'vieneu') {
+      referenceText.placeholder = requiresTranscript
+        ? 'VieNeu Standard/Fast cần transcript đúng với câu đang có trong audio tham chiếu.'
+        : 'Có thể nhập transcript để lưu đối chiếu, nhưng mode VieNeu hiện tại không bắt buộc.';
+      referenceHintPrimary.textContent = requiresTranscript
+        ? 'Bắt buộc với VieNeu Standard/Fast'
+        : 'Không bắt buộc với VieNeu Turbo';
+      referenceHintSecondary.textContent = requiresTranscript
+        ? 'Nhập nguyên câu có trong audio mẫu để VieNeu bám giọng và phát âm chính xác hơn'
+        : 'Nếu vẫn nhập transcript, hệ thống chỉ giữ lại để bạn đối chiếu.';
+    } else {
+      referenceText.placeholder = 'Nếu audio tham chiếu có lời nói rõ, nhập nguyên câu đó để F5-TTS giữ giọng ổn định hơn.';
+      referenceHintPrimary.textContent = 'Khuyến nghị với F5-TTS';
+      referenceHintSecondary.textContent = 'F5 không bắt buộc transcript, nhưng có transcript sẽ giữ giọng ổn định hơn.';
+    }
+
+    referenceText.required = requiresTranscript;
+    referenceText.setAttribute('aria-required', requiresTranscript ? 'true' : 'false');
+  }
+
+  function syncModelUi() {
+    const selection = getSelectedModelSelection();
     const showCustom = modelSelect.value === '__custom__';
 
     customModelInput.classList.toggle('hidden', !showCustom);
@@ -323,11 +383,11 @@
 
     modelHintPrimary.textContent = selection.help_primary || 'Chọn model theo engine đang bật.';
     modelHintSecondary.textContent = selection.help_secondary || '';
+    syncReferenceTextUi();
   }
 
   function syncModelOptions(preserveCurrent = true) {
-    const engineId = getSelectedEngine();
-    const selection = (((engineConfigMap[engineId] || {}).metadata || {}).model_selection) || {};
+    const selection = getSelectedModelSelection();
     const options = selection.options || [];
     const previousValue = preserveCurrent ? modelSelect.value : '';
 
@@ -477,6 +537,7 @@
   textInput.addEventListener('input', updateCount);
   speedRange.addEventListener('input', updateSpeed);
   modelSelect.addEventListener('change', syncModelUi);
+  customModelInput.addEventListener('input', syncReferenceTextUi);
   document.querySelectorAll('input[name="engine"]').forEach((radio) => {
     radio.addEventListener('change', function () {
       syncModelOptions(false);
@@ -496,6 +557,11 @@
     }
     if (!referenceAudio.files || !referenceAudio.files.length) {
       alert('Vui lòng chọn audio tham chiếu trước khi generate.');
+      return;
+    }
+    if (selectedVieneuRequiresReferenceText() && !referenceText.value.trim()) {
+      referenceText.focus();
+      alert('VieNeu Standard/Fast cần transcript tham chiếu. Hãy nhập đúng câu có trong audio mẫu.');
       return;
     }
     const selectedFile = referenceAudio.files[0];

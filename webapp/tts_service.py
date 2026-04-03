@@ -91,13 +91,34 @@ def _format_f5_import_error(exc: Exception) -> str:
     return f"Không thể import F5-TTS: {exc}"
 
 
+def _format_f5_runtime_error(exc: Exception) -> str:
+    normalized = re.sub(r"\s+", " ", str(exc or "")).strip().lower()
+    if any(
+        marker in normalized
+        for marker in (
+            "could not load libtorchaudio codec",
+            "libtorchaudio",
+            "ffmpeg is not properly installed",
+            "pytorch version",
+            "not compatible with",
+        )
+    ):
+        return (
+            "Không đọc được codec audio của torchaudio/FFmpeg trong runtime hiện tại. "
+            "Notebook của repo này đã chuyển mặc định sang VieNeu Standard; "
+            "hãy đổi engine sang `VieNeu-TTS` hoặc rerun cell cài dependencies "
+            "để đồng bộ torch/torchaudio và ffmpeg trước khi dùng F5."
+        )
+    return str(exc)
+
+
 def _format_vieneu_import_error(exc: Exception) -> str:
     if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None):
         missing_module = exc.name.strip()
         package_name = _map_import_name_to_package(missing_module)
         return (
             f"VieNeu-TTS đã được cài nhưng thiếu dependency `{missing_module}`. "
-            f"Hãy chạy `python -m pip install -U vieneu {package_name}` rồi khởi động lại ứng dụng."
+            f"Hãy chạy `python -m pip install -U \"vieneu[gpu]\" {package_name}` rồi khởi động lại ứng dụng."
         )
     return f"Không thể import VieNeu-TTS: {exc}"
 
@@ -107,6 +128,11 @@ def _normalize_engine_id(value: str, default: str = "vieneu") -> str:
     if normalized == "vira":
         return "vieneu"
     return normalized or default
+
+
+def _vieneu_mode_requires_reference_text(mode_name: str) -> bool:
+    normalized = (mode_name or "").strip().lower()
+    return normalized not in {"turbo", "turbo_gpu"}
 
 
 def _split_text_for_tts(text: str, max_chars: int = 220) -> list[str]:
@@ -491,7 +517,7 @@ class TTSStudioService:
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
         self.default_engine = _normalize_engine_id(os.getenv("TTS_DEFAULT_ENGINE", "vieneu"))
-        self.vieneu_mode = (os.getenv("VIENEU_MODE", "turbo") or "turbo").strip().lower() or "turbo"
+        self.vieneu_mode = (os.getenv("VIENEU_MODE", "standard") or "standard").strip().lower() or "standard"
         self.vieneu_mode_choices = os.getenv("VIENEU_MODE_CHOICES", "").strip()
 
         self.f5_model_name = os.getenv("F5_MODEL_NAME", "F5TTS_v1_Base")
@@ -596,12 +622,14 @@ class TTSStudioService:
         }
 
     def _vieneu_mode_selection(self) -> dict[str, Any]:
+        default_requires_reference_text = _vieneu_mode_requires_reference_text(self.vieneu_mode)
         options = [
             {
                 "key": "default",
                 "label": f"Mặc định: VieNeu {self.vieneu_mode}",
                 "value": self.vieneu_mode,
                 "mode": "default",
+                "requires_reference_text": default_requires_reference_text,
             }
         ]
         seen_keys = {"default"}
@@ -617,6 +645,7 @@ class TTSStudioService:
                     "label": label,
                     "value": mode_name,
                     "mode": "named",
+                    "requires_reference_text": _vieneu_mode_requires_reference_text(mode_name),
                 }
             )
             seen_keys.add(key)
@@ -624,9 +653,18 @@ class TTSStudioService:
         return {
             "default_key": "default",
             "allow_custom": True,
-            "custom_placeholder": "Ví dụ: turbo, turbo_gpu, fast hoặc standard",
-            "help_primary": "VieNeu mặc định nên dùng `turbo` để ưu tiên ổn định và clone giọng tiếng Việt nhanh hơn ViRa.",
-            "help_secondary": "Các mode GPU như `turbo_gpu`, `fast`, `standard` cần dependency nặng hơn; nếu chỉ cần ít lỗi, giữ `turbo`.",
+            "default_value": self.vieneu_mode,
+            "custom_placeholder": "Ví dụ: standard, fast, turbo hoặc turbo_gpu",
+            "help_primary": (
+                "VieNeu đang mặc định `standard` để ưu tiên chất lượng và độ bám giọng. "
+                "Hãy nhập transcript đúng với audio tham chiếu."
+                if default_requires_reference_text
+                else "VieNeu đang mặc định `turbo` để ưu tiên ổn định và clone giọng nhanh hơn."
+            ),
+            "help_secondary": (
+                "Mode `standard` và `fast` bắt buộc transcript tham chiếu; "
+                "`turbo` và `turbo_gpu` nhẹ hơn nhưng chất lượng thường thấp hơn."
+            ),
             "options": options,
         }
 
@@ -722,8 +760,8 @@ class TTSStudioService:
 
     def get_engine_cards(self) -> list[EngineCard]:
         return [
-            self._f5_card(),
             self._vieneu_card(),
+            self._f5_card(),
         ]
 
     def get_engine_card(self, engine_id: str) -> EngineCard:
@@ -764,6 +802,11 @@ class TTSStudioService:
             model_key=model_key,
             custom_model=custom_model,
         )
+        if engine.id == "vieneu" and _vieneu_mode_requires_reference_text(model_spec["mode_name"]) and not reference_text:
+            raise TTSError(
+                f"Mode VieNeu `{model_spec['mode_name']}` cần transcript tham chiếu. "
+                "Hãy nhập đúng câu đang có trong audio tham chiếu trước khi generate."
+            )
 
         output_path = self.output_dir / f"{int(time.time())}-{uuid.uuid4().hex[:10]}-{engine.id}.wav"
         if engine.id == "f5":
@@ -849,15 +892,17 @@ class TTSStudioService:
         )
 
     def _vieneu_card(self) -> EngineCard:
+        mode_name = self.vieneu_mode
+        requires_reference_text = _vieneu_mode_requires_reference_text(mode_name)
         module_ok, import_warning = self._probe_vieneu_import()
         if module_ok:
-            summary = "Sẵn sàng dùng VieNeu-TTS turbo cho tiếng Việt 24kHz."
+            summary = f"Sẵn sàng dùng VieNeu-TTS {mode_name} cho tiếng Việt 24kHz."
             warning = None
         elif import_warning == "Chưa cài gói `vieneu`.":
             summary = import_warning
             warning = (
                 "Engine VieNeu-TTS chưa khả dụng trong môi trường này. "
-                "Cài `vieneu` rồi khởi động lại ứng dụng."
+                "Cài `vieneu[gpu]` rồi khởi động lại ứng dụng nếu muốn dùng mode standard."
             )
         else:
             summary = "VieNeu-TTS cài chưa đủ dependency."
@@ -866,17 +911,38 @@ class TTSStudioService:
         return EngineCard(
             id="vieneu",
             label="VieNeu-TTS",
-            headline="Engine tiếng Việt ổn định hơn ViRa, clone giọng trực tiếp từ audio tham chiếu.",
-            description="Adapter này dùng `vieneu.Vieneu(mode='turbo')` để encode giọng tham chiếu và sinh audio 24kHz, tránh flow LLM speech-token dễ lỗi của ViRa.",
-            recommended_for="Dùng mặc định khi cần tiếng Việt ổn định, ít lỗi hơn ViRa và vẫn giữ được voice cloning cơ bản.",
-            output_quality="24kHz audio từ VieNeu Turbo, ưu tiên ổn định và tốc độ.",
-            reference_hint="Audio tham chiếu 3-8 giây, một người nói, ít nhạc nền. VieNeu Turbo không bắt buộc transcript tham chiếu.",
-            supports_reference_text=False,
+            headline=(
+                "Engine tiếng Việt chính của project, ưu tiên chất lượng clone giọng và độ bám lời."
+                if requires_reference_text
+                else "Engine tiếng Việt ổn định hơn ViRa, clone giọng trực tiếp từ audio tham chiếu."
+            ),
+            description=(
+                f"Adapter này dùng `vieneu.Vieneu(mode='{mode_name}')` để encode giọng tham chiếu "
+                "và sinh audio 24kHz, tránh flow LLM speech-token dễ lỗi của ViRa."
+            ),
+            recommended_for=(
+                "Dùng mặc định khi cần chất lượng cao hơn, clone giọng sát hơn và chấp nhận nhập transcript tham chiếu."
+                if requires_reference_text
+                else "Dùng khi cần tiếng Việt ổn định, ít lỗi và không muốn nhập transcript tham chiếu."
+            ),
+            output_quality=(
+                f"24kHz audio từ VieNeu {mode_name}, ưu tiên chất lượng và độ bám giọng."
+                if requires_reference_text
+                else f"24kHz audio từ VieNeu {mode_name}, ưu tiên ổn định và tốc độ."
+            ),
+            reference_hint=(
+                "Audio tham chiếu 3-8 giây, một người nói, ít nhạc nền. "
+                "Bắt buộc nhập transcript đúng với câu đang có trong audio mẫu."
+                if requires_reference_text
+                else "Audio tham chiếu 3-8 giây, một người nói, ít nhạc nền. Transcript tham chiếu không bắt buộc."
+            ),
+            supports_reference_text=requires_reference_text,
             ready=module_ok,
             summary=summary,
             warning=warning,
             metadata={
-                "mode": self.vieneu_mode,
+                "mode": mode_name,
+                "requires_reference_text": requires_reference_text,
                 "model_selection": self._vieneu_mode_selection(),
             },
         )
@@ -1008,7 +1074,9 @@ class TTSStudioService:
                     show_info=lambda *_args, **_kwargs: None,
                 )
             except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(f"F5-TTS sinh audio thất bại ở chunk {index + 1}: {exc}") from exc
+                raise TTSError(
+                    f"F5-TTS sinh audio thất bại ở chunk {index + 1}: {_format_f5_runtime_error(exc)}"
+                ) from exc
 
             wave = _to_numpy_audio(wav)
             chunk_waves.append(wave)
@@ -1071,12 +1139,13 @@ class TTSStudioService:
         if _numel(voice) == 0:
             raise TTSError("VieNeu encode ra voice embedding rỗng từ audio tham chiếu.")
 
+        requires_reference_text = _vieneu_mode_requires_reference_text(model_spec["mode_name"])
         infer_kwargs: dict[str, Any] = {
             "text": text,
             "max_chars": 220,
             "show_progress": False,
         }
-        if model_spec["mode_name"] == "turbo":
+        if not requires_reference_text:
             infer_kwargs["voice"] = voice
         else:
             if not reference_text:
@@ -1111,9 +1180,9 @@ class TTSStudioService:
             )
         if float(ref_prep_stats.get("activity_ratio_after_trim", 0.0)) < 0.28:
             notes.append("Audio tham chiếu có mật độ giọng nói hơi thưa; VieNeu vẫn chạy được nhưng chất lượng clone có thể giảm.")
-        if reference_text and model_spec["mode_name"] == "turbo":
-            notes.append("VieNeu Turbo không bắt buộc transcript tham chiếu; trường này chỉ để bạn lưu đối chiếu.")
-        if model_spec["mode_name"] != "turbo":
+        if reference_text and not requires_reference_text:
+            notes.append(f"Mode VieNeu `{model_spec['mode_name']}` không bắt buộc transcript tham chiếu; trường này chỉ để bạn lưu đối chiếu.")
+        if requires_reference_text:
             notes.append(f"Đã dùng mode VieNeu `{model_spec['mode_name']}` nên transcript tham chiếu được truyền vào model.")
         if model_spec["key"] != "default":
             notes.insert(0, f"Đã dùng mode VieNeu tùy chọn: {model_spec['label']}.")
@@ -1128,7 +1197,7 @@ class TTSStudioService:
             duration_seconds=len(audio_np) / float(sample_rate),
             inference_seconds=elapsed,
             chunk_count=estimated_chunks,
-            reference_text_used=bool(reference_text and model_spec["mode_name"] != "turbo"),
+            reference_text_used=bool(reference_text and requires_reference_text),
             seed=None,
             notes=notes,
         )
