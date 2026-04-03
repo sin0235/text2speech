@@ -3,7 +3,7 @@
 Flask webapp cho text-to-speech tiếng Việt, dùng hai engine:
 
 - `F5-TTS` cho zero-shot voice cloning linh hoạt.
-- `ViRa` cho tiếng Việt tự nhiên hơn.
+- `VieNeu-TTS` cho tiếng Việt ổn định hơn, ít lỗi runtime hơn ViRa.
 
 ## Run
 
@@ -49,23 +49,22 @@ Biến môi trường hỗ trợ:
 - `F5_VOCAB_FILE`
 - `F5_VOCODER_LOCAL_PATH`
 
-### ViRa
+### VieNeu-TTS
 
 ```powershell
-python -m pip install git+https://github.com/iamdinhthuan/Vira-tts.git
+python -m pip install -U vieneu==2.4.3
 ```
 
-Nếu dùng local model:
+Biến môi trường hỗ trợ:
 
-- đặt model vào `models/vira`
-- hoặc cấu hình `VIRA_MODEL_PATH`
-- có thể thêm nhiều lựa chọn UI bằng `VIRA_MODEL_CHOICES`, ví dụ `Mặc định phụ=path:models/vira-alt;HF beta=repo:owner/repo`
+- `VIENEU_MODE` mặc định là `turbo`
+- `VIENEU_MODE_CHOICES` thêm preset mode trên UI, ví dụ `Turbo GPU=turbo_gpu;Standard=standard`
 
-Nếu muốn app tự tải model:
+Khuyến nghị:
 
-```powershell
-$env:VIRA_AUTO_DOWNLOAD = "1"
-```
+- giữ `VIENEU_MODE=turbo` nếu ưu tiên ổn định và ít lỗi
+- dùng audio tham chiếu dài khoảng 3-8 giây, một người nói, ít nhạc nền
+- transcript tham chiếu hiện không bắt buộc với `turbo`
 
 ## API
 

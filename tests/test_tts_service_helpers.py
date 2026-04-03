@@ -7,7 +7,9 @@ import numpy as np
 from webapp.tts_service import (
     _fallback_cleanup_vira_text,
     _format_f5_import_error,
+    _format_vieneu_import_error,
     _map_import_name_to_package,
+    _normalize_engine_id,
     _normalize_reference_wave,
 )
 
@@ -47,6 +49,18 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertIn("cached_path", message)
         self.assertIn("f5-tts", message)
         self.assertIn("--no-deps", message)
+
+    def test_format_vieneu_import_error_mentions_package(self) -> None:
+        exc = ModuleNotFoundError("No module named 'llama_cpp'", name="llama_cpp")
+
+        message = _format_vieneu_import_error(exc)
+
+        self.assertIn("vieneu", message)
+        self.assertIn("llama-cpp-python", message)
+
+    def test_normalize_engine_id_maps_legacy_vira(self) -> None:
+        self.assertEqual(_normalize_engine_id("vira"), "vieneu")
+        self.assertEqual(_normalize_engine_id("vieneu"), "vieneu")
 
 
 if __name__ == "__main__":

@@ -64,10 +64,14 @@ def _map_import_name_to_package(module_name: str) -> str:
     return {
         "hydra": "hydra-core",
         "cached_path": "cached_path",
+        "llama_cpp": "llama-cpp-python",
         "omegaconf": "omegaconf",
+        "onnxruntime": "onnxruntime",
         "pydub": "pydub",
+        "perth": "perth",
         "pypinyin": "pypinyin",
         "rjieba": "rjieba",
+        "sea_g2p": "sea-g2p",
         "transformers_stream_generator": "transformers-stream-generator",
         "unidecode": "unidecode",
         "x_transformers": "x-transformers",
@@ -85,6 +89,24 @@ def _format_f5_import_error(exc: Exception) -> str:
             "vì bản cũ cài `f5-tts` với `--no-deps`."
         )
     return f"Không thể import F5-TTS: {exc}"
+
+
+def _format_vieneu_import_error(exc: Exception) -> str:
+    if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None):
+        missing_module = exc.name.strip()
+        package_name = _map_import_name_to_package(missing_module)
+        return (
+            f"VieNeu-TTS đã được cài nhưng thiếu dependency `{missing_module}`. "
+            f"Hãy chạy `python -m pip install -U vieneu {package_name}` rồi khởi động lại ứng dụng."
+        )
+    return f"Không thể import VieNeu-TTS: {exc}"
+
+
+def _normalize_engine_id(value: str, default: str = "vieneu") -> str:
+    normalized = (value or "").strip().lower()
+    if normalized == "vira":
+        return "vieneu"
+    return normalized or default
 
 
 def _split_text_for_tts(text: str, max_chars: int = 220) -> list[str]:
@@ -346,7 +368,7 @@ def _load_audio_mono_float(path: Path, target_sr: int) -> tuple[np.ndarray, int]
             import librosa
         except Exception as exc:
             raise TTSError(
-                f"Audio tham chiếu đang ở {sr} Hz. Cần cài `librosa` để resample về {target_sr} Hz cho ViRa."
+                f"Audio tham chiếu đang ở {sr} Hz. Cần cài `librosa` để resample về {target_sr} Hz cho engine hiện tại."
             ) from exc
         audio_np = librosa.resample(audio_np, orig_sr=sr, target_sr=target_sr)
         sr = target_sr
@@ -456,7 +478,7 @@ class SynthesisResult:
 
 
 class TTSStudioService:
-    """Flask-facing service that orchestrates F5-TTS and ViRa engines."""
+    """Flask-facing service that orchestrates F5-TTS and VieNeu-TTS engines."""
 
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
@@ -468,24 +490,22 @@ class TTSStudioService:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
-        self.default_engine = os.getenv("TTS_DEFAULT_ENGINE", "vira").strip().lower() or "vira"
-        self.vira_model_id = os.getenv("VIRA_MODEL_ID", "dolly-vn/Vira-TTS")
-        self.vira_model_path = Path(os.getenv("VIRA_MODEL_PATH", self.model_dir / "vira"))
-        self.vira_auto_download = _env_flag("VIRA_AUTO_DOWNLOAD", False)
+        self.default_engine = _normalize_engine_id(os.getenv("TTS_DEFAULT_ENGINE", "vieneu"))
+        self.vieneu_mode = (os.getenv("VIENEU_MODE", "turbo") or "turbo").strip().lower() or "turbo"
+        self.vieneu_mode_choices = os.getenv("VIENEU_MODE_CHOICES", "").strip()
 
         self.f5_model_name = os.getenv("F5_MODEL_NAME", "F5TTS_v1_Base")
         self.f5_ckpt_file = os.getenv("F5_CKPT_FILE", "").strip()
         self.f5_vocab_file = os.getenv("F5_VOCAB_FILE", "").strip()
         self.f5_vocoder_local_path = os.getenv("F5_VOCODER_LOCAL_PATH", "").strip() or None
         self.f5_model_choices = os.getenv("F5_MODEL_CHOICES", "").strip()
-        self.vira_model_choices = os.getenv("VIRA_MODEL_CHOICES", "").strip()
-
         self._locks = {
             "f5": Lock(),
-            "vira": Lock(),
+            "vieneu": Lock(),
         }
         self._loaded_models: dict[str, Any] = {}
         self._f5_import_probe: tuple[bool, str | None] | None = None
+        self._vieneu_import_probe: tuple[bool, str | None] | None = None
 
     def _display_path(self, path: Path) -> str:
         try:
@@ -514,66 +534,33 @@ class TTSStudioService:
         self._f5_import_probe = (True, None)
         return self._f5_import_probe
 
-    def _make_vira_path_key(self, path: Path | str) -> str:
-        resolved = Path(path)
-        if not resolved.is_absolute():
-            resolved = self.root / resolved
-        return f"path::{resolved.resolve()}"
+    def _probe_vieneu_import(self) -> tuple[bool, str | None]:
+        if self._vieneu_import_probe is not None:
+            return self._vieneu_import_probe
+
+        if importlib.util.find_spec("vieneu") is None:
+            self._vieneu_import_probe = (False, "Chưa cài gói `vieneu`.")
+            return self._vieneu_import_probe
+
+        try:
+            importlib.import_module("vieneu")
+        except Exception as exc:
+            self._vieneu_import_probe = (False, _format_vieneu_import_error(exc))
+            return self._vieneu_import_probe
+
+        self._vieneu_import_probe = (True, None)
+        return self._vieneu_import_probe
 
     @staticmethod
-    def _make_vira_repo_key(repo_id: str) -> str:
-        return f"repo::{repo_id.strip()}"
+    def _make_vieneu_mode_key(mode_name: str) -> str:
+        return f"mode::{(mode_name or '').strip().lower()}"
 
-    def _default_vira_model_label(self) -> str:
-        if _nonempty_dir(self.vira_model_path):
-            return f"Configured local: {self.vira_model_path.name}"
-        if self.vira_auto_download:
-            return f"Configured repo: {self.vira_model_id}"
-        return self._display_path(self.vira_model_path)
-
-    def _parse_vira_user_value(self, raw_value: str) -> tuple[str, str | Path]:
-        value = (raw_value or "").strip()
-        if not value:
-            raise TTSError("Thiếu model ViRa cần dùng.")
-
-        lowered = value.lower()
-        if lowered.startswith("path:"):
-            raw_path = value[5:].strip()
-            path = Path(raw_path)
-            if not path.is_absolute():
-                path = self.root / path
-            return "path", path.resolve()
-        if lowered.startswith("repo:"):
-            return "repo", value[5:].strip()
-
-        path_like = (
-            value.startswith(".")
-            or value.startswith("~")
-            or "\\" in value
-            or re.match(r"^[a-zA-Z]:[/\\]", value) is not None
-        )
-        if path_like:
-            path = Path(value).expanduser()
-            if not path.is_absolute():
-                path = self.root / path
-            return "path", path.resolve()
-        return "repo", value
-
-    def _discover_vira_model_paths(self) -> list[Path]:
-        candidates: list[Path] = []
-        seen: set[str] = set()
-
-        for path in [self.vira_model_path, *sorted(self.model_dir.iterdir(), key=lambda item: item.name.lower())]:
-            if not _nonempty_dir(path):
-                continue
-            normalized = str(path.resolve())
-            if normalized in seen:
-                continue
-            if path != self.vira_model_path and not path.name.lower().startswith("vira"):
-                continue
-            candidates.append(path.resolve())
-            seen.add(normalized)
-        return candidates
+    @staticmethod
+    def _normalize_vieneu_mode(mode_name: str) -> str:
+        normalized = (mode_name or "").strip().lower()
+        if normalized not in {"turbo", "turbo_gpu", "fast", "standard"}:
+            raise TTSError("Mode VieNeu không hợp lệ.")
+        return normalized
 
     def _f5_model_selection(self) -> dict[str, Any]:
         options = [
@@ -608,71 +595,47 @@ class TTSStudioService:
             "options": options,
         }
 
-    def _vira_model_selection(self) -> dict[str, Any]:
+    def _vieneu_mode_selection(self) -> dict[str, Any]:
         options = [
             {
                 "key": "default",
-                "label": self._default_vira_model_label(),
-                "value": str(self.vira_model_path),
+                "label": f"Mặc định: VieNeu {self.vieneu_mode}",
+                "value": self.vieneu_mode,
                 "mode": "default",
             }
         ]
         seen_keys = {"default"}
 
-        for path in self._discover_vira_model_paths():
-            key = self._make_vira_path_key(path)
-            if key in seen_keys or path == self.vira_model_path.resolve():
+        for label, value in _parse_named_choices(self.vieneu_mode_choices):
+            mode_name = self._normalize_vieneu_mode(value)
+            key = self._make_vieneu_mode_key(mode_name)
+            if key in seen_keys:
                 continue
             options.append(
                 {
                     "key": key,
-                    "label": f"Local: {path.name}",
-                    "value": str(path),
-                    "mode": "path",
+                    "label": label,
+                    "value": mode_name,
+                    "mode": "named",
                 }
             )
-            seen_keys.add(key)
-
-        for label, value in _parse_named_choices(self.vira_model_choices):
-            mode, normalized = self._parse_vira_user_value(value)
-            if mode == "path":
-                path = Path(normalized)
-                key = self._make_vira_path_key(path)
-                option = {
-                    "key": key,
-                    "label": label,
-                    "value": str(path),
-                    "mode": "path",
-                }
-            else:
-                repo_id = str(normalized)
-                key = self._make_vira_repo_key(repo_id)
-                option = {
-                    "key": key,
-                    "label": label,
-                    "value": repo_id,
-                    "mode": "repo",
-                }
-            if key in seen_keys:
-                continue
-            options.append(option)
             seen_keys.add(key)
 
         return {
             "default_key": "default",
             "allow_custom": True,
-            "custom_placeholder": "Ví dụ: repo:dolly-vn/Vira-TTS hoặc path:models/vira-alt",
-            "help_primary": "ViRa có thể dùng thư mục local hoặc repo Hugging Face. Với custom, nên ghi rõ `repo:` hoặc `path:`.",
-            "help_secondary": "Nếu chọn repo chưa có sẵn, app chỉ tự tải khi `VIRA_AUTO_DOWNLOAD=1`.",
+            "custom_placeholder": "Ví dụ: turbo, turbo_gpu, fast hoặc standard",
+            "help_primary": "VieNeu mặc định nên dùng `turbo` để ưu tiên ổn định và clone giọng tiếng Việt nhanh hơn ViRa.",
+            "help_secondary": "Các mode GPU như `turbo_gpu`, `fast`, `standard` cần dependency nặng hơn; nếu chỉ cần ít lỗi, giữ `turbo`.",
             "options": options,
         }
 
     def get_model_selection(self, engine_id: str) -> dict[str, Any]:
-        engine = (engine_id or "").strip().lower()
+        engine = _normalize_engine_id(engine_id)
         if engine == "f5":
             return self._f5_model_selection()
-        if engine == "vira":
-            return self._vira_model_selection()
+        if engine == "vieneu":
+            return self._vieneu_mode_selection()
         raise TTSError(f"Engine '{engine_id}' không tồn tại.")
 
     def resolve_model_spec(
@@ -682,7 +645,7 @@ class TTSStudioService:
         model_key: str = "default",
         custom_model: str = "",
     ) -> dict[str, Any]:
-        engine = (engine_id or "").strip().lower()
+        engine = _normalize_engine_id(engine_id)
         key = (model_key or "default").strip() or "default"
         custom = (custom_model or "").strip()
 
@@ -718,46 +681,29 @@ class TTSStudioService:
                 }
             raise TTSError("Lựa chọn model F5 không hợp lệ.")
 
-        if engine == "vira":
+        if engine == "vieneu":
             if key == "__custom__":
                 if not custom:
-                    raise TTSError("Hãy nhập model ViRa tùy chỉnh trước khi generate.")
-                mode, normalized = self._parse_vira_user_value(custom)
+                    raise TTSError("Hãy nhập mode VieNeu tùy chỉnh trước khi generate.")
+                mode_name = self._normalize_vieneu_mode(custom)
             elif key == "default":
                 return {
                     "key": "default",
-                    "label": self._default_vira_model_label(),
+                    "label": f"VieNeu {self.vieneu_mode}",
                     "mode": "default",
-                    "cache_key": f"vira::default::{self.vira_model_path.resolve()}::{self.vira_model_id}::{int(self.vira_auto_download)}",
+                    "mode_name": self.vieneu_mode,
+                    "cache_key": f"vieneu::default::{self.vieneu_mode}",
                 }
-            elif key.startswith("path::"):
-                mode, normalized = "path", Path(key.split("::", 1)[1]).resolve()
-            elif key.startswith("repo::"):
-                mode, normalized = "repo", key.split("::", 1)[1].strip()
+            elif key.startswith("mode::"):
+                mode_name = self._normalize_vieneu_mode(key.split("::", 1)[1])
             else:
-                raise TTSError("Lựa chọn model ViRa không hợp lệ.")
-
-            if mode == "path":
-                path = Path(normalized)
-                return {
-                    "key": self._make_vira_path_key(path),
-                    "label": f"Local: {path.name}",
-                    "mode": "path",
-                    "model_path": path,
-                    "cache_key": f"vira::path::{path.resolve()}",
-                }
-
-            repo_id = str(normalized).strip()
-            if not repo_id:
-                raise TTSError("Repo model ViRa không hợp lệ.")
-            cache_dir = self.model_dir / "vira-cache" / _sanitize_cache_token(repo_id)
+                raise TTSError("Lựa chọn mode VieNeu không hợp lệ.")
             return {
-                "key": self._make_vira_repo_key(repo_id),
-                "label": repo_id,
-                "mode": "repo",
-                "repo_id": repo_id,
-                "download_path": cache_dir,
-                "cache_key": f"vira::repo::{repo_id}",
+                "key": self._make_vieneu_mode_key(mode_name),
+                "label": f"VieNeu {mode_name}",
+                "mode": "name",
+                "mode_name": mode_name,
+                "cache_key": f"vieneu::{mode_name}",
             }
 
         raise TTSError(f"Engine '{engine_id}' không tồn tại.")
@@ -766,7 +712,7 @@ class TTSStudioService:
         cards = self.get_engine_cards()
         ready_count = sum(1 for card in cards if card.ready)
         device_label = "GPU" if self._torch_cuda_available() else "CPU"
-        default_card = next((card for card in cards if card.id == self.default_engine), cards[0])
+        default_card = next((card for card in cards if card.id == _normalize_engine_id(self.default_engine)), cards[0])
         return {
             "engine_count": len(cards),
             "ready_count": ready_count,
@@ -777,11 +723,11 @@ class TTSStudioService:
     def get_engine_cards(self) -> list[EngineCard]:
         return [
             self._f5_card(),
-            self._vira_card(),
+            self._vieneu_card(),
         ]
 
     def get_engine_card(self, engine_id: str) -> EngineCard:
-        engine = (engine_id or "").strip().lower()
+        engine = _normalize_engine_id(engine_id)
         for card in self.get_engine_cards():
             if card.id == engine:
                 return card
@@ -831,8 +777,8 @@ class TTSStudioService:
                 model_spec=model_spec,
                 output_path=output_path,
             )
-        if engine.id == "vira":
-            return self._synthesize_with_vira(
+        if engine.id == "vieneu":
+            return self._synthesize_with_vieneu(
                 text=text,
                 reference_audio=reference_audio,
                 reference_text=reference_text,
@@ -848,23 +794,23 @@ class TTSStudioService:
         saved.write_bytes(payload)
         return saved
 
-    def _prepare_reference_audio_for_vira(self, reference_audio: Path) -> tuple[Path, float, dict[str, float | bool]]:
-        target_sr = 48000
+    def _prepare_reference_audio_for_vieneu(self, reference_audio: Path) -> tuple[Path, float, dict[str, float | bool]]:
+        target_sr = 24000
         audio_np, sr = _load_audio_mono_float(reference_audio, target_sr=target_sr)
         audio_np, prep_stats = _trim_reference_silence(audio_np, sr)
         duration_seconds = float(len(audio_np) / sr)
         activity_after_trim = _estimate_activity_ratio(audio_np, sr)
         if duration_seconds < 1.0:
-            raise TTSError("Audio tham chiếu quá ngắn cho ViRa. Hãy dùng đoạn nói rõ dài tối thiểu khoảng 1 giây, tốt nhất 3-10 giây.")
-        if duration_seconds > 20.0:
-            raise TTSError("Audio tham chiếu quá dài cho ViRa. Hãy cắt còn khoảng 3-10 giây để ổn định hơn.")
-        if activity_after_trim < 0.18:
+            raise TTSError("Audio tham chiếu quá ngắn cho VieNeu. Hãy dùng đoạn nói rõ dài tối thiểu khoảng 1 giây, tốt nhất 3-8 giây.")
+        if duration_seconds > 15.0:
+            raise TTSError("Audio tham chiếu quá dài cho VieNeu. Hãy cắt còn khoảng 3-8 giây để clone giọng ổn định hơn.")
+        if activity_after_trim < 0.12:
             raise TTSError(
-                "Audio tham chiếu có quá nhiều khoảng lặng cho ViRa. "
-                "Hãy cắt còn 3-10 giây giọng nói liên tục, rõ tiếng hơn."
+                "Audio tham chiếu có quá nhiều khoảng lặng cho VieNeu. "
+                "Hãy cắt còn 3-8 giây giọng nói liên tục, rõ tiếng hơn."
             )
 
-        prepared_path = self.reference_dir / f"{reference_audio.stem}-vira-48k.wav"
+        prepared_path = self.reference_dir / f"{reference_audio.stem}-vieneu-24k.wav"
         sf.write(prepared_path, audio_np, target_sr)
         prep_stats["activity_ratio_after_trim"] = activity_after_trim
         return prepared_path, duration_seconds, prep_stats
@@ -902,44 +848,36 @@ class TTSStudioService:
             },
         )
 
-    def _vira_card(self) -> EngineCard:
-        module_ok = importlib.util.find_spec("mira") is not None
-        model_ok = self.vira_model_path.exists() and any(self.vira_model_path.iterdir())
-        ready = module_ok and (model_ok or self.vira_auto_download)
-
-        if ready:
-            summary = "Sẵn sàng dùng ViRa cho tiếng Việt tự nhiên 48kHz."
+    def _vieneu_card(self) -> EngineCard:
+        module_ok, import_warning = self._probe_vieneu_import()
+        if module_ok:
+            summary = "Sẵn sàng dùng VieNeu-TTS turbo cho tiếng Việt 24kHz."
             warning = None
-        elif not module_ok:
-            summary = "Chưa cài module `mira` từ ViRa."
+        elif import_warning == "Chưa cài gói `vieneu`.":
+            summary = import_warning
             warning = (
-                "Engine ViRa chưa khả dụng vì module `mira` chưa được cài. "
-                "Cài upstream ViRa/Mira rồi khởi động lại ứng dụng."
+                "Engine VieNeu-TTS chưa khả dụng trong môi trường này. "
+                "Cài `vieneu` rồi khởi động lại ứng dụng."
             )
         else:
-            summary = "Thiếu thư mục model ViRa."
-            warning = (
-                f"Chưa tìm thấy model tại '{self.vira_model_path}'. "
-                "Hãy tải model ViRa hoặc bật `VIRA_AUTO_DOWNLOAD=1`."
-            )
+            summary = "VieNeu-TTS cài chưa đủ dependency."
+            warning = import_warning
 
         return EngineCard(
-            id="vira",
-            label="ViRa",
-            headline="Tối ưu riêng cho tiếng Việt với zero-shot voice cloning.",
-            description="Adapter này dùng `MiraTTS.encode_audio()` và `generate()` theo flow của space ViRa, nhưng sinh tuần tự từng chunk để giảm lỗi codec khi câu dài.",
-            recommended_for="Dùng mặc định khi cần phát âm tiếng Việt, dấu thanh và ngữ điệu ổn định hơn.",
-            output_quality="48kHz audio sau bước decode của codec ViRa.",
-            reference_hint="Audio tham chiếu 3-10 giây, một người nói, không vọng phòng. Không cần transcript nhưng vẫn nên dùng câu mẫu rõ ràng.",
+            id="vieneu",
+            label="VieNeu-TTS",
+            headline="Engine tiếng Việt ổn định hơn ViRa, clone giọng trực tiếp từ audio tham chiếu.",
+            description="Adapter này dùng `vieneu.Vieneu(mode='turbo')` để encode giọng tham chiếu và sinh audio 24kHz, tránh flow LLM speech-token dễ lỗi của ViRa.",
+            recommended_for="Dùng mặc định khi cần tiếng Việt ổn định, ít lỗi hơn ViRa và vẫn giữ được voice cloning cơ bản.",
+            output_quality="24kHz audio từ VieNeu Turbo, ưu tiên ổn định và tốc độ.",
+            reference_hint="Audio tham chiếu 3-8 giây, một người nói, ít nhạc nền. VieNeu Turbo không bắt buộc transcript tham chiếu.",
             supports_reference_text=False,
-            ready=ready,
+            ready=module_ok,
             summary=summary,
             warning=warning,
             metadata={
-                "model_path": str(self.vira_model_path),
-                "auto_download": self.vira_auto_download,
-                "model_id": self.vira_model_id,
-                "model_selection": self._vira_model_selection(),
+                "mode": self.vieneu_mode,
+                "model_selection": self._vieneu_mode_selection(),
             },
         )
 
@@ -972,22 +910,21 @@ class TTSStudioService:
             self._loaded_models[cache_key] = instance
             return instance
 
-    def _load_vira(self, model_spec: dict[str, Any]) -> Any:
-        with self._locks["vira"]:
+    def _load_vieneu(self, model_spec: dict[str, Any]) -> Any:
+        with self._locks["vieneu"]:
             cache_key = model_spec["cache_key"]
             if cache_key in self._loaded_models:
                 return self._loaded_models[cache_key]
 
-            model_path = self._ensure_vira_model_path(model_spec)
             try:
-                from mira.model import MiraTTS
+                from vieneu import Vieneu
             except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(f"Không thể import ViRa/Mira: {exc}") from exc
+                raise TTSError(_format_vieneu_import_error(exc)) from exc
 
             try:
-                instance = MiraTTS(str(model_path))
+                instance = Vieneu(mode=model_spec["mode_name"])
             except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(f"Khởi tạo ViRa thất bại: {exc}") from exc
+                raise TTSError(f"Khởi tạo VieNeu-TTS thất bại: {exc}") from exc
 
             self._loaded_models[cache_key] = instance
             return instance
@@ -1110,6 +1047,89 @@ class TTSStudioService:
             chunk_count=len(chunks),
             reference_text_used=bool(reference_text),
             seed=seed,
+            notes=notes,
+        )
+
+    def _synthesize_with_vieneu(
+        self,
+        *,
+        text: str,
+        reference_audio: Path,
+        reference_text: str,
+        model_spec: dict[str, Any],
+        output_path: Path,
+    ) -> SynthesisResult:
+        vieneu = self._load_vieneu(model_spec)
+        started = time.perf_counter()
+        prepared_reference_audio, ref_duration, ref_prep_stats = self._prepare_reference_audio_for_vieneu(reference_audio)
+
+        try:
+            voice = vieneu.encode_reference(str(prepared_reference_audio))
+        except Exception as exc:  # pragma: no cover - depends on external install
+            raise TTSError(f"VieNeu không encode được audio tham chiếu: {exc}") from exc
+
+        if _numel(voice) == 0:
+            raise TTSError("VieNeu encode ra voice embedding rỗng từ audio tham chiếu.")
+
+        infer_kwargs: dict[str, Any] = {
+            "text": text,
+            "max_chars": 220,
+            "show_progress": False,
+        }
+        if model_spec["mode_name"] == "turbo":
+            infer_kwargs["voice"] = voice
+        else:
+            if not reference_text:
+                raise TTSError(
+                    "Mode VieNeu này cần transcript tham chiếu. "
+                    "Hãy nhập đúng câu đang có trong audio tham chiếu hoặc đổi về mode `turbo`."
+                )
+            infer_kwargs["ref_codes"] = voice
+            infer_kwargs["ref_text"] = reference_text
+
+        try:
+            audio = vieneu.infer(**infer_kwargs)
+        except Exception as exc:  # pragma: no cover - depends on external install
+            raise TTSError(f"VieNeu sinh audio thất bại: {exc}") from exc
+
+        audio_np = _to_numpy_audio(audio)
+        if audio_np.size == 0:
+            raise TTSError("VieNeu trả về audio rỗng. Hãy thử đổi audio tham chiếu hoặc rút ngắn đoạn văn.")
+
+        sample_rate = int(getattr(vieneu, "sample_rate", 24000) or 24000)
+        sf.write(output_path, audio_np, sample_rate)
+
+        elapsed = time.perf_counter() - started
+        estimated_chunks = max(1, len(_split_text_for_tts(text, max_chars=220)))
+        notes = [
+            "VieNeu clone giọng trực tiếp từ reference embedding, không dùng flow speech-token kiểu ViRa.",
+            f"Audio tham chiếu sau chuẩn hóa dài khoảng {ref_duration:.2f}s.",
+        ]
+        if ref_prep_stats.get("trimmed"):
+            notes.append(
+                f"Đã tự cắt khoảng lặng đầu/cuối khỏi audio tham chiếu (~{float(ref_prep_stats['trimmed_seconds']):.2f}s)."
+            )
+        if float(ref_prep_stats.get("activity_ratio_after_trim", 0.0)) < 0.28:
+            notes.append("Audio tham chiếu có mật độ giọng nói hơi thưa; VieNeu vẫn chạy được nhưng chất lượng clone có thể giảm.")
+        if reference_text and model_spec["mode_name"] == "turbo":
+            notes.append("VieNeu Turbo không bắt buộc transcript tham chiếu; trường này chỉ để bạn lưu đối chiếu.")
+        if model_spec["mode_name"] != "turbo":
+            notes.append(f"Đã dùng mode VieNeu `{model_spec['mode_name']}` nên transcript tham chiếu được truyền vào model.")
+        if model_spec["key"] != "default":
+            notes.insert(0, f"Đã dùng mode VieNeu tùy chọn: {model_spec['label']}.")
+
+        return SynthesisResult(
+            engine_id="vieneu",
+            engine_label="VieNeu-TTS",
+            model_key=model_spec["key"],
+            model_label=model_spec["label"],
+            output_path=output_path,
+            sample_rate=sample_rate,
+            duration_seconds=len(audio_np) / float(sample_rate),
+            inference_seconds=elapsed,
+            chunk_count=estimated_chunks,
+            reference_text_used=bool(reference_text and model_spec["mode_name"] != "turbo"),
+            seed=None,
             notes=notes,
         )
 
