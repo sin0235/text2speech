@@ -579,9 +579,9 @@ main {
   overflow: hidden;
 }
 
+.advanced-settings-title,
 .advanced-settings-summary {
   list-style: none;
-  cursor: pointer;
   padding: 14px 16px;
   font-size: 14px;
   font-weight: 800;
@@ -589,6 +589,10 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.advanced-settings-summary {
+  cursor: pointer;
 }
 
 .advanced-settings-summary::-webkit-details-marker {
@@ -604,6 +608,10 @@ main {
 
 .advanced-settings-card[open] .advanced-settings-summary::after {
   content: "-";
+}
+
+.advanced-settings-title::after {
+  content: none;
 }
 
 .advanced-settings-body {

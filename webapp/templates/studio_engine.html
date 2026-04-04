@@ -173,8 +173,8 @@
         </section>
 
         {% if engine_card.id == "gwen" and gwen_settings_payload %}
-        <details class="advanced-settings-card" open>
-          <summary class="advanced-settings-summary">Cài đặt nâng cao</summary>
+        <section class="advanced-settings-card">
+          <div class="advanced-settings-title">Cài đặt nâng cao</div>
           <div class="advanced-settings-body">
             <div class="advanced-settings-grid">
               <div class="control-card">
@@ -251,10 +251,10 @@
 
             <button class="btn btn-outline" type="button" id="resetGwenSettingsBtn">Reset về mặc định</button>
           </div>
-        </details>
+        </section>
 
-        <details class="advanced-settings-card" open>
-          <summary class="advanced-settings-summary">Cài Đặt Phát Âm</summary>
+        <section class="advanced-settings-card">
+          <div class="advanced-settings-title">Cài Đặt Phát Âm</div>
           <div class="advanced-settings-body">
             <div id="pronunciationRules" class="pronunciation-rule-list"></div>
 
@@ -263,7 +263,7 @@
               <button class="btn btn-outline" type="button" id="clearPronunciationRulesBtn">Xóa hết</button>
             </div>
           </div>
-        </details>
+        </section>
 
         <section class="tts-side-card">
           <div class="tts-side-card-title">Tự Động Phát</div>

@@ -199,24 +199,24 @@ tts_job_manager = TTSJobManager()
 
 def _parse_gwen_generation_form() -> dict[str, Any]:
     subtalker_do_sample_values = request.form.getlist("gwen_subtalker_do_sample")
-    normalized = _normalize_gwen_generation_config(
-        {
-            "speed": request.form.get("speed"),
-            "temperature": request.form.get("gwen_temperature"),
-            "top_p": request.form.get("gwen_top_p"),
-            "top_k": request.form.get("gwen_top_k"),
-            "repetition_penalty": request.form.get("gwen_repetition_penalty"),
-            "max_new_tokens": request.form.get("gwen_max_new_tokens"),
-            "subtalker_do_sample": any(
-                str(value).strip().lower() in {"1", "true", "yes", "on"}
-                for value in subtalker_do_sample_values
-            ),
-            "subtalker_temperature": request.form.get("gwen_subtalker_temperature"),
-            "subtalker_top_k": request.form.get("gwen_subtalker_top_k"),
-            "subtalker_top_p": request.form.get("gwen_subtalker_top_p"),
-            "subtalker_sampling_method": request.form.get("gwen_subtalker_sampling_method"),
-        }
-    )
+    raw_config: dict[str, Any] = {
+        "speed": request.form.get("speed"),
+        "temperature": request.form.get("gwen_temperature"),
+        "top_p": request.form.get("gwen_top_p"),
+        "top_k": request.form.get("gwen_top_k"),
+        "repetition_penalty": request.form.get("gwen_repetition_penalty"),
+        "max_new_tokens": request.form.get("gwen_max_new_tokens"),
+        "subtalker_temperature": request.form.get("gwen_subtalker_temperature"),
+        "subtalker_top_k": request.form.get("gwen_subtalker_top_k"),
+        "subtalker_top_p": request.form.get("gwen_subtalker_top_p"),
+        "subtalker_sampling_method": request.form.get("gwen_subtalker_sampling_method"),
+    }
+    if subtalker_do_sample_values:
+        raw_config["subtalker_do_sample"] = any(
+            str(value).strip().lower() in {"1", "true", "yes", "on"}
+            for value in subtalker_do_sample_values
+        )
+    normalized = _normalize_gwen_generation_config(raw_config)
     return normalized
 
 

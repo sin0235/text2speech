@@ -254,6 +254,56 @@ class ApiErrorHandlingTest(unittest.TestCase):
         self.assertEqual(payload["ok"], False)
         self.assertIn(f"{MAX_UPLOAD_MB} MB", payload["error"])
 
+    def test_generate_gwen_without_subtalker_checkbox_keeps_default(self) -> None:
+        preset_voice = PresetVoice(
+            id="yen_nhi",
+            name="Yến Nhi",
+            avatar="YN",
+            style="Tự nhiên",
+            audio_filename="yen_nhi.wav",
+            reference_text="xin chao",
+        )
+        result = SynthesisResult(
+            engine_id="gwen",
+            engine_label="Gwen-TTS",
+            model_key="default",
+            model_label="Default",
+            output_path=studio.output_dir / "preset-default-cp.wav",
+            sample_rate=24000,
+            duration_seconds=1.25,
+            inference_seconds=0.42,
+            chunk_count=1,
+            reference_text_used=True,
+            seed=None,
+            notes=["default cp ok"],
+        )
+
+        with patch("webapp.app.studio.get_preset_voice_reference", return_value=(preset_voice, studio.output_dir / "yen_nhi.wav")):
+            with patch("webapp.app.studio.synthesize", return_value=result) as synthesize_mock:
+                response = self.client.post(
+                    "/api/tts/generate",
+                    data={
+                        "engine": "gwen",
+                        "text": "AI giup KPI ro hon",
+                        "preset_voice_id": "yen_nhi",
+                        "speed": "1.0",
+                        "gwen_temperature": "0.3",
+                        "gwen_top_p": "0.9",
+                        "gwen_top_k": "20",
+                        "gwen_repetition_penalty": "2.0",
+                        "gwen_max_new_tokens": "4096",
+                        "gwen_subtalker_temperature": "0.1",
+                        "gwen_subtalker_top_k": "20",
+                        "gwen_subtalker_top_p": "1.0",
+                        "gwen_subtalker_sampling_method": "gumbel",
+                    },
+                    content_type="multipart/form-data",
+                )
+
+        self.assertEqual(response.status_code, 200)
+        kwargs = synthesize_mock.call_args.kwargs
+        self.assertTrue(kwargs["gwen_generation_config"]["subtalker_do_sample"])
+
     def test_unknown_api_route_returns_json(self) -> None:
         response = self.client.get("/api/does-not-exist")
 
