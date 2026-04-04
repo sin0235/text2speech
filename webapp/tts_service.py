@@ -2064,91 +2064,92 @@ class TTSStudioService:
             raise TTSError("Văn bản đầu vào rỗng sau khi chuẩn hóa cho Gwen-TTS.")
 
         runtime_notes: list[str] = []
-        chunk_payload: str | list[str] = chunks if len(chunks) > 1 else chunks[0]
-        language_payload: str | list[str] = ["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese"
         generate_call_kwargs = dict(generation_kwargs)
-        call_plan: list[str] = ["direct_no_language", "direct_with_language"]
+        default_call_plan: list[str] = ["direct_with_language", "direct_no_language"]
         if hasattr(gwen, "create_voice_clone_prompt"):
-            call_plan.append("voice_clone_prompt")
+            default_call_plan.append("voice_clone_prompt")
 
-        wavs: Any = None
+        preferred_call_mode: str | None = None
+        chunk_waves: list[np.ndarray] = []
         sample_rate: Any = None
-        last_error: Exception | None = None
-        call_index = 0
 
-        while call_index < len(call_plan):
-            call_mode = call_plan[call_index]
-            try:
-                if call_mode == "direct_no_language":
-                    wavs, sample_rate = gwen.generate_voice_clone(
-                        text=chunk_payload,
-                        ref_audio=str(prepared_reference_audio),
-                        ref_text=reference_text,
-                        **generate_call_kwargs,
-                    )
-                    runtime_notes.append(
-                        "Đã gọi Gwen theo flow upstream: truyền trực tiếp `ref_audio/ref_text` và không ép tham số `language`."
-                    )
-                elif call_mode == "direct_with_language":
-                    wavs, sample_rate = gwen.generate_voice_clone(
-                        text=chunk_payload,
-                        language=language_payload,
-                        ref_audio=str(prepared_reference_audio),
-                        ref_text=reference_text,
-                        **generate_call_kwargs,
-                    )
-                    runtime_notes.append(
-                        "Runtime Gwen hiện tại cần `language`; app đã fallback sang đường gọi có tham số này."
-                    )
-                else:
-                    voice_clone_prompt = gwen.create_voice_clone_prompt(
-                        ref_audio=str(prepared_reference_audio),
-                        ref_text=reference_text,
-                        x_vector_only_mode=False,
-                    )
-                    wavs, sample_rate = gwen.generate_voice_clone(
-                        text=chunk_payload,
-                        language=language_payload,
-                        voice_clone_prompt=voice_clone_prompt,
-                        **generate_call_kwargs,
-                    )
-                    runtime_notes.append(
-                        "Runtime Gwen hiện tại không nhận `ref_audio/ref_text` trực tiếp; app đã fallback sang `voice_clone_prompt`."
-                    )
-                break
-            except TypeError as exc:  # pragma: no cover - depends on external install
-                message = str(exc or "")
-                lowered_message = message.lower()
-                last_error = exc
-                if "unexpected keyword argument" in message and "speed" in message and "speed" in generate_call_kwargs:
-                    generate_call_kwargs.pop("speed", None)
-                    if abs(float(normalized_generation_config["speed"]) - 1.0) > 1e-6:
-                        runtime_notes.append(
-                            "Runtime `qwen-tts` hiện tại không nhận tham số `speed`; Gwen chạy ở tốc độ mặc định của model."
+        for chunk in chunks:
+            call_plan = [preferred_call_mode] if preferred_call_mode else []
+            call_plan.extend(mode for mode in default_call_plan if mode and mode not in call_plan)
+            last_error: Exception | None = None
+            call_index = 0
+            raw_waves: list[Any] = []
+
+            while call_index < len(call_plan):
+                call_mode = call_plan[call_index]
+                try:
+                    if call_mode == "direct_with_language":
+                        wavs, sample_rate = gwen.generate_voice_clone(
+                            text=chunk,
+                            language="Vietnamese",
+                            ref_audio=str(prepared_reference_audio),
+                            ref_text=reference_text,
+                            **generate_call_kwargs,
                         )
-                    continue
-                if call_mode == "direct_no_language" and "language" in lowered_message:
-                    call_index += 1
-                    continue
-                if call_mode in {"direct_no_language", "direct_with_language"} and (
-                    "ref_audio" in lowered_message or "ref_text" in lowered_message
-                ):
-                    call_index = max(call_index + 1, len(call_plan) - 1)
-                    continue
-                if call_mode == "direct_with_language" and "language" in lowered_message:
-                    call_index += 1
-                    continue
-                raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
-            except Exception as exc:  # pragma: no cover - depends on external install
-                last_error = exc
-                raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
-        else:
-            raise TTSError(
-                f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(last_error or RuntimeError('unknown error'))}"
-            )
+                        if "official_language_flow" not in runtime_notes:
+                            runtime_notes.append("official_language_flow")
+                        preferred_call_mode = call_mode
+                    elif call_mode == "direct_no_language":
+                        wavs, sample_rate = gwen.generate_voice_clone(
+                            text=chunk,
+                            ref_audio=str(prepared_reference_audio),
+                            ref_text=reference_text,
+                            **generate_call_kwargs,
+                        )
+                        if "no_language_fallback" not in runtime_notes:
+                            runtime_notes.append("no_language_fallback")
+                        preferred_call_mode = call_mode
+                    else:
+                        voice_clone_prompt = gwen.create_voice_clone_prompt(
+                            ref_audio=str(prepared_reference_audio),
+                            ref_text=reference_text,
+                            x_vector_only_mode=False,
+                        )
+                        wavs, sample_rate = gwen.generate_voice_clone(
+                            text=chunk,
+                            language="Vietnamese",
+                            voice_clone_prompt=voice_clone_prompt,
+                            **generate_call_kwargs,
+                        )
+                        if "prompt_fallback" not in runtime_notes:
+                            runtime_notes.append("prompt_fallback")
+                        preferred_call_mode = call_mode
 
-        raw_waves = wavs if isinstance(wavs, (list, tuple)) else [wavs]
-        chunk_waves = [_to_numpy_audio(wave) for wave in raw_waves]
+                    raw_waves = list(wavs) if isinstance(wavs, (list, tuple)) else [wavs]
+                    break
+                except TypeError as exc:  # pragma: no cover - depends on external install
+                    message = str(exc or "")
+                    lowered_message = message.lower()
+                    last_error = exc
+                    if "unexpected keyword argument" in message and "speed" in message and "speed" in generate_call_kwargs:
+                        generate_call_kwargs.pop("speed", None)
+                        if "speed_not_supported" not in runtime_notes and abs(float(normalized_generation_config["speed"]) - 1.0) > 1e-6:
+                            runtime_notes.append("speed_not_supported")
+                        continue
+                    if call_mode == "direct_with_language" and "language" in lowered_message:
+                        call_index += 1
+                        continue
+                    if call_mode in {"direct_no_language", "direct_with_language"} and (
+                        "ref_audio" in lowered_message or "ref_text" in lowered_message
+                    ):
+                        call_index = max(call_index + 1, len(call_plan) - 1)
+                        continue
+                    raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
+                except Exception as exc:  # pragma: no cover - depends on external install
+                    last_error = exc
+                    raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
+            else:
+                raise TTSError(
+                    f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(last_error or RuntimeError('unknown error'))}"
+                )
+
+            chunk_waves.extend(_to_numpy_audio(wave) for wave in raw_waves)
+
         if not chunk_waves or any(wave.size == 0 for wave in chunk_waves):
             raise TTSError("Gwen-TTS trả về audio rỗng. Hãy thử rút ngắn văn bản hoặc đổi audio tham chiếu.")
 
@@ -2162,6 +2163,14 @@ class TTSStudioService:
             f"Audio tham chiếu Gwen dài khoảng {ref_duration:.2f}s.",
             "Gwen-TTS dùng transcript tham chiếu để clone giọng trực tiếp theo flow inference của upstream.",
         ]
+        if "official_language_flow" in runtime_notes:
+            notes.insert(0, "Đã gọi Gwen theo khuyến nghị chính thức: truyền `language=\"Vietnamese\"` cùng `ref_audio/ref_text`.")
+        elif "no_language_fallback" in runtime_notes:
+            notes.insert(0, "Runtime `qwen-tts` hiện tại không nhận `language`; app đã fallback sang gọi trực tiếp với `ref_audio/ref_text`.")
+        elif "prompt_fallback" in runtime_notes:
+            notes.insert(0, "Runtime Gwen hiện tại không nhận `ref_audio/ref_text` trực tiếp; app đã fallback sang `voice_clone_prompt`.")
+        if "speed_not_supported" in runtime_notes:
+            notes.append("Runtime `qwen-tts` hiện tại không nhận tham số `speed`; Gwen chạy ở tốc độ mặc định của model.")
         if ref_prep_stats.get("converted"):
             notes.append("Reference audio của Gwen đã được convert sang WAV mono 24kHz vì file gốc không phải WAV.")
         if applied_pronunciations:
@@ -2190,13 +2199,12 @@ class TTSStudioService:
             notes.append("Audio tham chiếu có mật độ giọng nói hơi thưa; Gwen vẫn chạy được nhưng độ bám giọng có thể giảm.")
         if runtime_attn != model_spec["attn_implementation"]:
             notes.append(f"Gwen-TTS đã fallback attention từ `{model_spec['attn_implementation']}` sang `{runtime_attn}` để load ổn định hơn.")
-        notes.extend(runtime_notes)
         if re.search(r"\d|[%$@]|[A-Z]{2,}", text) and not applied_pronunciations:
             notes.append(
                 "Text đầu vào có số, ký hiệu hoặc viết tắt; nếu phát âm chưa đẹp, hãy thêm quy tắc ở mục `Cài Đặt Phát Âm` để bám cách đọc mong muốn."
             )
         if len(chunks) > 1:
-            notes.append(f"Văn bản được tách thành {len(chunks)} chunk để giữ chất lượng clone ổn định hơn.")
+            notes.append(f"Văn bản được tách thành {len(chunks)} chunk và gọi Gwen tuần tự để giữ nhịp đọc ổn định hơn.")
         if model_spec["key"] != "default":
             notes.insert(0, f"Đã dùng model Gwen tùy chọn: {model_spec['label']}.")
 
