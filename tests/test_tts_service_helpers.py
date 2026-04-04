@@ -312,6 +312,54 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertGreater(duration_seconds, 3.9)
         self.assertFalse(prep_stats["trimmed"])
 
+    def test_synthesize_with_gwen_uses_ref_prep_stats_when_reference_was_converted(self) -> None:
+        class FakeGwen:
+            def create_voice_clone_prompt(self, **_kwargs: object) -> str:
+                return "prompt"
+
+            def generate_voice_clone(self, **_kwargs: object) -> tuple[list[np.ndarray], int]:
+                wave = np.sin(np.linspace(0, 8, 24000, dtype=np.float32)) * 0.1
+                return [wave], 24000
+
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+                reference_audio = Path(tmpdir) / "reference.mp3"
+                reference_audio.write_bytes(b"fake")
+                output_path = Path(tmpdir) / "out.wav"
+                model_spec = service.resolve_model_spec("gwen")
+
+                with patch.object(service, "_load_gwen", return_value=FakeGwen()):
+                    with patch.object(
+                        service,
+                        "_prepare_reference_audio_for_gwen",
+                        return_value=(
+                            Path(tmpdir) / "reference-gwen-24k.wav",
+                            4.2,
+                            {
+                                "trimmed": False,
+                                "trimmed_seconds": 0.0,
+                                "original_duration_seconds": 4.2,
+                                "activity_ratio": 0.72,
+                                "activity_ratio_after_trim": 0.72,
+                                "converted": True,
+                            },
+                        ),
+                    ):
+                        result = service._synthesize_with_gwen(
+                            text="Xin chao Gwen",
+                            reference_audio=reference_audio,
+                            reference_text="Xin chao Gwen",
+                            model_spec=model_spec,
+                            output_path=output_path,
+                            speed=1.0,
+                        )
+                        output_exists = output_path.exists()
+
+        self.assertEqual(result.sample_rate, 24000)
+        self.assertTrue(output_exists)
+        self.assertTrue(any("convert sang WAV mono 24kHz" in note for note in result.notes))
+
     def test_gwen_card_is_not_ready_without_cuda(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             with tempfile.TemporaryDirectory() as tmpdir:

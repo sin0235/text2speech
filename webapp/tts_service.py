@@ -1904,7 +1904,7 @@ class TTSStudioService:
             f"Audio tham chiếu Gwen dài khoảng {ref_duration:.2f}s.",
             "Gwen-TTS dùng transcript tham chiếu để dựng reusable clone prompt rồi tái sử dụng cho toàn bộ chunk.",
         ]
-        if prep_stats.get("converted"):
+        if ref_prep_stats.get("converted"):
             notes.append("Reference audio của Gwen đã được convert sang WAV mono 24kHz vì file gốc không phải WAV.")
         if applied_pronunciations:
             pronunciation_preview = "; ".join(

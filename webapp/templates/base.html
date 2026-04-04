@@ -19,7 +19,7 @@
       href="{{ url_for('static', filename='css/style.css') }}"
     />
   </head>
-  <body>
+  <body class="page-{{ active }}">
     <div class="site-shell">
       <header class="site-header">
         <div class="logo">
@@ -59,7 +59,7 @@
         </div>
       </header>
 
-      <main>{% block content %}{% endblock %}</main>
+      <main class="{{ 'studio-main' if active not in ['voices', 'about'] else '' }}">{% block content %}{% endblock %}</main>
 
       <footer>
         <div class="footer-inner">

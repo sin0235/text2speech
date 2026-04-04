@@ -1,484 +1,409 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="page-header compact-page-header">
-  <h1>{{ engine_card.label }}</h1>
-  <p class="subtitle">{{ engine_card.headline }}</p>
-</div>
+<div class="tts-workbench">
+  <div class="tts-workbench-head">
+    <div class="tts-workbench-copy">
+      <h1>Chuyển Văn Bản Thành Giọng Nói</h1>
+      <p>{{ engine_card.headline }}</p>
+    </div>
 
-<section class="card compact-summary-card">
-  <div class="summary-strip">
-    <span class="status-pill">{{ engine_card.label }}</span>
-    <span class="summary-item">
-      {% if engine_card.ready %}Sẵn sàng generate{% else %}Chưa sẵn sàng{% endif %}
-    </span>
-    <span class="summary-item">{{ status_summary.device_label }}</span>
-    <span class="summary-item">{{ status_summary.ready_count }}/{{ status_summary.engine_count }} engine khả dụng</span>
-  </div>
-</section>
-
-<section class="card">
-  <div class="section-title">
-    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2" />
-    </svg>
-    Studio {{ engine_card.label }}
+    <div class="tts-workbench-pills">
+      <span class="tts-top-pill">{{ engine_card.label }}</span>
+      <span class="tts-top-pill">{{ status_summary.device_label }}</span>
+      <span class="tts-top-pill">{% if engine_card.ready %}Sẵn sàng generate{% else %}Chưa sẵn sàng{% endif %}</span>
+    </div>
   </div>
 
-  <form id="ttsForm" class="studio-layout" enctype="multipart/form-data">
+  <form id="ttsForm" class="tts-board" enctype="multipart/form-data">
     <input type="hidden" name="engine" value="{{ engine_card.id }}" />
     <input type="hidden" name="preset_voice_id" id="presetVoiceId" value="" />
 
-    <div class="studio-primary">
-      <div class="form-group">
-        <label for="textInput">
-          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h10" />
-          </svg>
-          Văn bản cần đọc
-        </label>
-        <textarea
-          id="textInput"
-          name="text"
-          rows="7"
-          class="form-control large-textarea"
-          placeholder="Nhập nội dung tiếng Việt cần chuyển thành giọng nói..."
-        ></textarea>
-        <div class="field-meta">
-          <span id="textCount">0 ký tự</span>
-          <span>Khuyến nghị 1 đến 6 câu cho mỗi lượt</span>
+    <section class="tts-stage">
+      <div class="tts-editor-card">
+        <div class="tts-editor-shell">
+          <textarea
+            id="textInput"
+            name="text"
+            rows="12"
+            maxlength="2500"
+            class="tts-editor-input"
+            placeholder="Nhập nội dung tiếng Việt cần chuyển thành giọng nói..."
+          ></textarea>
+        </div>
+
+        <div class="tts-editor-foot">
+          <div class="tts-editor-tags">
+            <span class="tts-language-pill">Tiếng Việt</span>
+            <span class="tts-language-pill subtle">{{ engine_card.label }}</span>
+          </div>
+
+          <div class="tts-editor-actions">
+            <span id="textCount" class="tts-editor-count">0 / 2500</span>
+            <button class="tts-ghost-btn" type="button" onclick="resetStudio()">Xóa Form</button>
+            <button class="tts-submit-btn" type="submit" id="generateBtn" {% if not engine_card.ready %}disabled{% endif %}>Chuyển Đổi</button>
+          </div>
         </div>
       </div>
 
-      {% if engine_card.id == "gwen" and preset_voices_payload %}
-      <div class="form-group">
-        <label>Giọng có sẵn của model gốc</label>
-        <div class="voice-source-toggle">
-          <button type="button" class="voice-source-btn active" id="presetModeBtn">{{ preset_voices_payload|length }} giọng có sẵn</button>
-          <button type="button" class="voice-source-btn" id="customModeBtn">Clone từ audio riêng</button>
+      <div class="tts-output-card">
+        <div id="resultState" class="tts-output-empty">
+          Chưa có audio nào được sinh. Kết quả sẽ hiện ở đây ngay sau khi chạy xong.
         </div>
 
-        <div id="presetVoiceSection" class="preset-voice-section">
-          <div class="preset-voice-grid">
-            {% for voice in preset_voices_payload %}
-            <button
-              type="button"
-              class="preset-voice-card{% if loop.first %} active{% endif %}"
-              data-voice-id="{{ voice.id }}"
-            >
-              <span class="preset-voice-avatar">{{ voice.avatar }}</span>
-              <span class="preset-voice-name">{{ voice.name }}</span>
-              <span class="preset-voice-style">{{ voice.style }}</span>
+        <div id="resultCard" class="tts-output-ready hidden">
+          <audio id="resultPlayer" class="hidden"></audio>
+
+          <div class="tts-output-topline">
+            <div>
+              <div class="result-engine" id="resultEngineLabel"></div>
+              <div class="result-file" id="resultFilename"></div>
+            </div>
+            <span class="status-pill" id="resultRate"></span>
+          </div>
+
+          <div class="tts-player-row">
+            <button type="button" class="tts-player-button" id="resultPlayButton">
+              <svg id="resultPlayIcon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5.14v13.72a1 1 0 0 0 1.53.85l10.86-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14z" />
+              </svg>
             </button>
-            {% endfor %}
+
+            <div class="tts-player-track-wrap">
+              <input id="resultSeekRange" class="tts-player-track" type="range" min="0" max="1000" value="0" />
+            </div>
+
+            <div class="tts-player-time">
+              <span id="resultCurrentTime">00:00</span>
+              <span>/</span>
+              <span id="resultDuration">00:00</span>
+            </div>
+
+            <a class="tts-player-icon" id="downloadLink" href="#" download aria-label="Tải WAV">
+              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l4-4m-4 4l-4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+              </svg>
+            </a>
+
+            <button class="tts-player-icon" type="button" onclick="copyAudioUrl()" aria-label="Copy link output">
+              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2M10 18h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </button>
           </div>
 
-          <div class="preset-voice-detail" id="presetVoiceDetail">
-            <div class="preset-voice-detail-head">
-              <div class="preset-voice-detail-id" id="presetVoiceAvatar"></div>
-              <div>
-                <div class="preset-voice-detail-name" id="presetVoiceName"></div>
-                <div class="preset-voice-detail-style" id="presetVoiceStyle"></div>
-              </div>
-            </div>
-            <audio id="presetVoicePlayer" controls class="player compact-player"></audio>
-            <div class="voice-tip-box subtle-tip-box">
-              <div class="voice-tip-title">Transcript chuẩn của preset</div>
-              <div class="voice-tip-text" id="presetVoiceReferenceText"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      {% endif %}
-
-      <div class="form-group">
-        <label for="modelSelect">Chọn model</label>
-        <select id="modelSelect" name="model_key" class="form-control"></select>
-        <input
-          id="customModelInput"
-          name="custom_model"
-          type="text"
-          class="form-control compact-input hidden"
-          placeholder="Nhập model tùy chỉnh"
-          autocomplete="off"
-          disabled
-        />
-        <div class="field-meta">
-          <span id="modelHintPrimary">{{ model_selection.help_primary }}</span>
-          <span id="modelHintSecondary">{{ model_selection.help_secondary }}</span>
+          <div class="result-stats tts-output-stats" id="resultStats"></div>
+          <div class="result-notes" id="resultNotes"></div>
         </div>
       </div>
 
-      <div class="form-group">
-        <label for="referenceText">
-          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8M8 14h4M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          Transcript tham chiếu
-        </label>
-        <textarea
-          id="referenceText"
-          name="reference_text"
-          rows="3"
-          class="form-control"
-          placeholder="Nhập đúng câu đang có trong audio tham chiếu nếu engine hiện tại yêu cầu transcript."
-        ></textarea>
-        <div class="field-meta">
-          <span id="referenceHintPrimary">
-            {% if engine_card.id == "gwen" %}
-            Bắt buộc với Gwen-TTS
-            {% elif engine_card.supports_reference_text %}
-            Bắt buộc với mode hiện tại
-            {% else %}
-            Khuyến nghị nhưng không bắt buộc
-            {% endif %}
-          </span>
-          <span id="referenceHintSecondary">Nhập nguyên câu trong audio mẫu để giữ clone giọng ổn định.</span>
-        </div>
-      </div>
-
-      <div class="examples">
-        <div class="examples-title">Điền nhanh</div>
-        <div class="example-chips">
-          {% for example in examples %}
-          <button type="button" class="chip" onclick='fillExample({{ example|tojson }})'>
-            Mẫu {{ loop.index }}
-          </button>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-
-    <div class="studio-secondary">
-      <div class="voice-tip-box">
-        <div class="voice-tip-title">Engine hiện tại</div>
-        <div class="voice-tip-text">{{ engine_card.summary }}</div>
-        <div class="voice-tip-text">{{ engine_card.recommended_for }}</div>
-      </div>
-
-      <div class="form-group" id="customReferenceGroup">
-        <label for="referenceAudio">Audio tham chiếu</label>
-        <label class="upload-box" for="referenceAudio">
-          <input id="referenceAudio" name="reference_audio" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*" />
-          <div class="upload-icon">
-            <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-          </div>
-          <div class="upload-title">Chọn file audio mẫu</div>
-          <div class="upload-subtitle">WAV, MP3, FLAC, M4A, OGG. Tối đa {{ max_upload_mb }} MB.</div>
-          <div class="upload-file" id="uploadFileLabel">Chưa có file nào được chọn</div>
-        </label>
-        <div class="field-meta field-meta-stack">
-          <span>{{ engine_card.reference_hint }}</span>
-          {% for tip in reference_tips %}
-          <span>{{ tip }}</span>
-          {% endfor %}
-        </div>
-      </div>
-
-      {% if engine_card.id == "gwen" and gwen_settings_payload %}
-      <details class="advanced-settings-card">
-        <summary class="advanced-settings-summary">Cài đặt nâng cao</summary>
-        <div class="advanced-settings-body">
-          <div class="advanced-settings-grid">
-            <div class="control-card">
-              <label for="speedRange">Tốc độ</label>
-              <input
-                id="speedRange"
-                name="speed"
-                type="range"
-                min="{{ gwen_settings_payload.ranges.speed.min }}"
-                max="{{ gwen_settings_payload.ranges.speed.max }}"
-                step="{{ gwen_settings_payload.ranges.speed.step }}"
-                value="{{ gwen_settings_payload.defaults.speed }}"
-              />
-              <div class="range-meta">
-                <span>Chậm</span>
-                <strong id="speedValue">{{ "%.2f"|format(gwen_settings_payload.defaults.speed) }}x</strong>
-                <span>Nhanh</span>
-              </div>
-            </div>
-
-            <div class="control-card">
-              <label for="gwenTemperature">Temperature</label>
-              <input
-                id="gwenTemperature"
-                name="gwen_temperature"
-                type="range"
-                min="{{ gwen_settings_payload.ranges.temperature.min }}"
-                max="{{ gwen_settings_payload.ranges.temperature.max }}"
-                step="{{ gwen_settings_payload.ranges.temperature.step }}"
-                value="{{ gwen_settings_payload.defaults.temperature }}"
-              />
-              <div class="range-meta">
-                <span>Ổn định</span>
-                <strong id="gwenTemperatureValue">{{ "%.1f"|format(gwen_settings_payload.defaults.temperature) }}</strong>
-                <span>Sáng tạo</span>
-              </div>
-            </div>
-
-            <div class="control-card">
-              <label for="gwenTopP">Top P</label>
-              <input
-                id="gwenTopP"
-                name="gwen_top_p"
-                type="range"
-                min="{{ gwen_settings_payload.ranges.topP.min }}"
-                max="{{ gwen_settings_payload.ranges.topP.max }}"
-                step="{{ gwen_settings_payload.ranges.topP.step }}"
-                value="{{ gwen_settings_payload.defaults.topP }}"
-              />
-              <div class="range-meta">
-                <span>Tập trung</span>
-                <strong id="gwenTopPValue">{{ "%.2f"|format(gwen_settings_payload.defaults.topP) }}</strong>
-                <span>Đa dạng</span>
-              </div>
-            </div>
-
-            <div class="control-card">
-              <label for="gwenTopK">Top K</label>
-              <input
-                id="gwenTopK"
-                name="gwen_top_k"
-                type="range"
-                min="{{ gwen_settings_payload.ranges.topK.min }}"
-                max="{{ gwen_settings_payload.ranges.topK.max }}"
-                step="{{ gwen_settings_payload.ranges.topK.step }}"
-                value="{{ gwen_settings_payload.defaults.topK }}"
-              />
-              <div class="range-meta">
-                <span>1</span>
-                <strong id="gwenTopKValue">{{ gwen_settings_payload.defaults.topK }}</strong>
-                <span>100</span>
-              </div>
-            </div>
-
-            <div class="control-card">
-              <label for="gwenRepetitionPenalty">Repetition Penalty</label>
-              <input
-                id="gwenRepetitionPenalty"
-                name="gwen_repetition_penalty"
-                type="range"
-                min="{{ gwen_settings_payload.ranges.repetitionPenalty.min }}"
-                max="{{ gwen_settings_payload.ranges.repetitionPenalty.max }}"
-                step="{{ gwen_settings_payload.ranges.repetitionPenalty.step }}"
-                value="{{ gwen_settings_payload.defaults.repetitionPenalty }}"
-              />
-              <div class="range-meta">
-                <span>Cho phép lặp</span>
-                <strong id="gwenRepetitionPenaltyValue">{{ "%.1f"|format(gwen_settings_payload.defaults.repetitionPenalty) }}</strong>
-                <span>Ngăn lặp</span>
-              </div>
-            </div>
-
-            <div class="control-card">
-              <label for="gwenMaxNewTokens">Max New Tokens</label>
-              <input
-                id="gwenMaxNewTokens"
-                name="gwen_max_new_tokens"
-                type="range"
-                min="{{ gwen_settings_payload.ranges.maxNewTokens.min }}"
-                max="{{ gwen_settings_payload.ranges.maxNewTokens.max }}"
-                step="{{ gwen_settings_payload.ranges.maxNewTokens.step }}"
-                value="{{ gwen_settings_payload.defaults.maxNewTokens }}"
-              />
-              <div class="range-meta">
-                <span>512</span>
-                <strong id="gwenMaxNewTokensValue">{{ gwen_settings_payload.defaults.maxNewTokens }}</strong>
-                <span>8192</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="advanced-subsection">
-            <div class="advanced-subsection-title">Code Predictor</div>
-            <label class="toggle-row compact-toggle-row">
-              <input type="checkbox" name="gwen_subtalker_do_sample" id="gwenSubtalkerDoSample" checked />
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              <span>Do Sample</span>
-            </label>
-
-            <div class="advanced-settings-grid">
-              <div class="control-card">
-                <label for="gwenSubtalkerTemperature">CP Temperature</label>
-                <input
-                  id="gwenSubtalkerTemperature"
-                  name="gwen_subtalker_temperature"
-                  type="range"
-                  min="{{ gwen_settings_payload.ranges.codePredictorTemperature.min }}"
-                  max="{{ gwen_settings_payload.ranges.codePredictorTemperature.max }}"
-                  step="{{ gwen_settings_payload.ranges.codePredictorTemperature.step }}"
-                  value="{{ gwen_settings_payload.defaults.codePredictorTemperature }}"
-                />
-                <div class="range-meta">
-                  <span>Ổn định</span>
-                  <strong id="gwenSubtalkerTemperatureValue">{{ "%.1f"|format(gwen_settings_payload.defaults.codePredictorTemperature) }}</strong>
-                  <span>Sáng tạo</span>
-                </div>
-              </div>
-
-              <div class="control-card">
-                <label for="gwenSubtalkerTopK">CP Top K</label>
-                <input
-                  id="gwenSubtalkerTopK"
-                  name="gwen_subtalker_top_k"
-                  type="range"
-                  min="{{ gwen_settings_payload.ranges.codePredictorTopK.min }}"
-                  max="{{ gwen_settings_payload.ranges.codePredictorTopK.max }}"
-                  step="{{ gwen_settings_payload.ranges.codePredictorTopK.step }}"
-                  value="{{ gwen_settings_payload.defaults.codePredictorTopK }}"
-                />
-                <div class="range-meta">
-                  <span>1</span>
-                  <strong id="gwenSubtalkerTopKValue">{{ gwen_settings_payload.defaults.codePredictorTopK }}</strong>
-                  <span>100</span>
-                </div>
-              </div>
-
-              <div class="control-card">
-                <label for="gwenSubtalkerTopP">CP Top P</label>
-                <input
-                  id="gwenSubtalkerTopP"
-                  name="gwen_subtalker_top_p"
-                  type="range"
-                  min="{{ gwen_settings_payload.ranges.codePredictorTopP.min }}"
-                  max="{{ gwen_settings_payload.ranges.codePredictorTopP.max }}"
-                  step="{{ gwen_settings_payload.ranges.codePredictorTopP.step }}"
-                  value="{{ gwen_settings_payload.defaults.codePredictorTopP }}"
-                />
-                <div class="range-meta">
-                  <span>Tập trung</span>
-                  <strong id="gwenSubtalkerTopPValue">{{ "%.2f"|format(gwen_settings_payload.defaults.codePredictorTopP) }}</strong>
-                  <span>Đa dạng</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="sampling-method-line">
-              <span>Sampling Method</span>
-              <strong id="gwenSamplingMethodValue">{{ gwen_settings_payload.defaults.codePredictorSamplingMethod }}</strong>
-              <input
-                type="hidden"
-                id="gwenSamplingMethod"
-                name="gwen_subtalker_sampling_method"
-                value="{{ gwen_settings_payload.defaults.codePredictorSamplingMethod }}"
-              />
-            </div>
-          </div>
-
-          <button class="btn btn-outline" type="button" id="resetGwenSettingsBtn">Reset về mặc định</button>
-        </div>
-      </details>
-
-      <details class="advanced-settings-card">
-        <summary class="advanced-settings-summary">Cài Đặt Phát Âm</summary>
-        <div class="advanced-settings-body">
-          <div class="voice-tip-box subtle-tip-box pronunciation-helper-box">
-            <div class="voice-tip-title">Chữ -> cách đọc</div>
-            <div class="voice-tip-text">Mỗi dòng là một quy tắc thay chữ trước khi Gwen-TTS synthesize. Ví dụ: `AI` -> `ây ai`.</div>
-          </div>
-
-          <div id="pronunciationRules" class="pronunciation-rule-list"></div>
-
-          <div class="form-actions pronunciation-actions">
-            <button class="btn btn-outline" type="button" id="addPronunciationRuleBtn">Thêm cặp đọc</button>
-            <button class="btn btn-outline" type="button" id="clearPronunciationRulesBtn">Xóa hết</button>
-          </div>
-        </div>
-      </details>
-
-      <div class="toggle-group">
-        <label class="toggle-row">
-          <input type="checkbox" id="autoPlay" checked />
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          <span>Tự phát audio sau khi sinh xong</span>
-        </label>
-      </div>
-      {% else %}
-      <div class="controls-grid">
-        <div class="control-card">
-          <label for="speedRange">Tốc độ đọc</label>
-          <input id="speedRange" name="speed" type="range" min="0.7" max="1.3" step="0.05" value="1" />
-          <div class="range-meta">
-            <span>Chậm</span>
-            <strong id="speedValue">1.00x</strong>
-            <span>Nhanh</span>
-          </div>
-        </div>
-
-        <div class="control-card">
-          <label for="seedInput">Seed</label>
-          <input id="seedInput" name="seed" class="form-control compact-input" type="number" min="0" placeholder="Tùy chọn" />
-          <div class="field-meta single-line">
-            {% if engine_card.id == "f5" %}
-            F5 có thể dùng seed để lặp lại kết quả gần giống.
-            {% else %}
-            Trường này chủ yếu có tác dụng với F5.
-            {% endif %}
-          </div>
-        </div>
-      </div>
-
-      <div class="toggle-group">
-        <label class="toggle-row">
-          <input type="checkbox" name="remove_silence" id="removeSilence" />
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          <span>
-            {% if engine_card.id == "f5" %}
-            Loại khoảng lặng đầu/cuối nếu F5 hỗ trợ
-            {% else %}
-            Tùy chọn này chỉ áp dụng khi gọi F5
-            {% endif %}
-          </span>
-        </label>
-        <label class="toggle-row">
-          <input type="checkbox" id="autoPlay" checked />
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          <span>Tự phát audio sau khi sinh xong</span>
-        </label>
-      </div>
-      {% endif %}
-
-      {% if engine_card.metadata %}
-      <div class="engine-metadata">
-        {% for key, value in engine_card.metadata.items() %}
-        {% if key != "model_selection" %}
-        <div class="metadata-line">
-          <span>{{ key }}</span>
-          <strong>{{ value }}</strong>
-        </div>
-        {% endif %}
+      <div class="tts-prompt-strip">
+        {% for example in examples %}
+        <button type="button" class="tts-prompt-chip" onclick='fillExample({{ example|tojson }})'>Mẫu {{ loop.index }}</button>
         {% endfor %}
       </div>
-      {% endif %}
+    </section>
 
-      {% if engine_card.warning %}
-      <div class="voice-tip-box subtle-tip-box">
-        <div class="voice-tip-title">Lưu ý runtime</div>
-        <div class="voice-tip-text">{{ engine_card.warning }}</div>
-      </div>
-      {% endif %}
-
-      <div class="form-actions">
-        <button class="btn" type="submit" id="generateBtn" {% if not engine_card.ready %}disabled{% endif %}>
-          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-6.518-3.73A1 1 0 007 8.308v7.384a1 1 0 001.234.972l6.518-1.627A1 1 0 0015.5 14.1v-2.064a1 1 0 00-.748-.968z" />
-          </svg>
-          Generate Audio
-        </button>
-        <button class="btn btn-outline" type="button" onclick="resetStudio()">Xóa form</button>
+    <aside class="tts-sidebar">
+      <div class="tts-sidebar-tabs">
+        <button type="button" class="tts-sidebar-tab active" id="settingsTabBtn">Cài Đặt</button>
+        <button type="button" class="tts-sidebar-tab" id="historyTabBtn">Lịch Sử</button>
       </div>
 
-      {% if not engine_card.ready %}
-      <div class="empty-state small">
-        {{ engine_card.warning or engine_card.summary }}
+      <div class="tts-sidebar-panel active" id="settingsPanel">
+        <div class="tts-side-banner">
+          <div class="tts-side-banner-mark">{{ engine_card.label[:2] }}</div>
+          <div>
+            <div class="tts-side-banner-title">{{ engine_card.label }}</div>
+            <div class="tts-side-banner-copy">{{ engine_card.summary }}</div>
+          </div>
+        </div>
+
+        <section class="tts-side-card">
+          <div class="tts-side-card-title">Mô Hình AI</div>
+          <select id="modelSelect" name="model_key" class="form-control tts-side-input"></select>
+          <input
+            id="customModelInput"
+            name="custom_model"
+            type="text"
+            class="form-control compact-input hidden"
+            placeholder="Nhập model tùy chỉnh"
+            autocomplete="off"
+            disabled
+          />
+          <div class="tts-inline-hint">
+            <span id="modelHintPrimary">{{ model_selection.help_primary }}</span>
+            <span id="modelHintSecondary">{{ model_selection.help_secondary }}</span>
+          </div>
+        </section>
+
+        <section class="tts-side-card">
+          <div class="tts-side-card-title">Giọng Nói</div>
+
+          {% if engine_card.id == "gwen" and preset_voices_payload %}
+          <div class="voice-source-toggle studio-toggle-full">
+            <button type="button" class="voice-source-btn active" id="presetModeBtn">{{ preset_voices_payload|length }} giọng có sẵn</button>
+            <button type="button" class="voice-source-btn" id="customModeBtn">Clone audio riêng</button>
+          </div>
+
+          <div id="presetVoiceSection" class="preset-voice-section preset-voice-section-compact">
+            <div class="preset-voice-detail preset-voice-detail-compact" id="presetVoiceDetail">
+              <div class="preset-voice-detail-head">
+                <div class="preset-voice-detail-id" id="presetVoiceAvatar"></div>
+                <div>
+                  <div class="preset-voice-detail-name" id="presetVoiceName"></div>
+                  <div class="preset-voice-detail-style" id="presetVoiceStyle"></div>
+                </div>
+              </div>
+              <audio id="presetVoicePlayer" controls class="player compact-player"></audio>
+              <div class="voice-tip-box subtle-tip-box compact-reference-box">
+                <div class="voice-tip-title">Transcript preset</div>
+                <div class="voice-tip-text" id="presetVoiceReferenceText"></div>
+              </div>
+            </div>
+
+            <div class="preset-voice-grid preset-voice-grid-compact">
+              {% for voice in preset_voices_payload %}
+              <button
+                type="button"
+                class="preset-voice-card preset-voice-card-compact{% if loop.first %} active{% endif %}"
+                data-voice-id="{{ voice.id }}"
+              >
+                <span class="preset-voice-avatar">{{ voice.avatar }}</span>
+                <span class="preset-voice-name">{{ voice.name }}</span>
+                <span class="preset-voice-style">{{ voice.style }}</span>
+              </button>
+              {% endfor %}
+            </div>
+          </div>
+          {% else %}
+          <div class="voice-tip-box subtle-tip-box compact-reference-box">
+            <div class="voice-tip-title">Voice Clone</div>
+            <div class="voice-tip-text">{{ engine_card.recommended_for }}</div>
+          </div>
+          {% endif %}
+
+          <div class="form-group tts-side-form-group" id="customReferenceGroup">
+            <label for="referenceAudio">Audio tham chiếu</label>
+            <label class="upload-box compact-upload-box" for="referenceAudio">
+              <input id="referenceAudio" name="reference_audio" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*" />
+              <div class="upload-title">Chọn file audio mẫu</div>
+              <div class="upload-subtitle">WAV, MP3, FLAC, M4A, OGG. Tối đa {{ max_upload_mb }} MB.</div>
+              <div class="upload-file" id="uploadFileLabel">Chưa có file nào được chọn</div>
+            </label>
+            <div class="tts-inline-hint">
+              <span>{{ engine_card.reference_hint }}</span>
+            </div>
+          </div>
+
+          <div class="form-group tts-side-form-group">
+            <label for="referenceText">Transcript tham chiếu</label>
+            <textarea
+              id="referenceText"
+              name="reference_text"
+              rows="4"
+              class="form-control"
+              placeholder="Nhập đúng câu đang có trong audio tham chiếu nếu engine hiện tại yêu cầu transcript."
+            ></textarea>
+            <div class="tts-inline-hint">
+              <span id="referenceHintPrimary">
+                {% if engine_card.id == "gwen" %}
+                Bắt buộc với Gwen-TTS
+                {% elif engine_card.supports_reference_text %}
+                Bắt buộc với mode hiện tại
+                {% else %}
+                Khuyến nghị nhưng không bắt buộc
+                {% endif %}
+              </span>
+              <span id="referenceHintSecondary">Nhập nguyên câu trong audio mẫu để giữ clone giọng ổn định.</span>
+            </div>
+          </div>
+        </section>
+
+        {% if engine_card.id == "gwen" and gwen_settings_payload %}
+        <details class="advanced-settings-card" open>
+          <summary class="advanced-settings-summary">Cài đặt nâng cao</summary>
+          <div class="advanced-settings-body">
+            <div class="advanced-settings-grid">
+              <div class="control-card">
+                <label for="speedRange">Tốc độ</label>
+                <input id="speedRange" name="speed" type="range" min="{{ gwen_settings_payload.ranges.speed.min }}" max="{{ gwen_settings_payload.ranges.speed.max }}" step="{{ gwen_settings_payload.ranges.speed.step }}" value="{{ gwen_settings_payload.defaults.speed }}" />
+                <div class="range-meta"><span>Chậm</span><strong id="speedValue">{{ "%.2f"|format(gwen_settings_payload.defaults.speed) }}x</strong><span>Nhanh</span></div>
+              </div>
+
+              <div class="control-card">
+                <label for="gwenTemperature">Temperature</label>
+                <input id="gwenTemperature" name="gwen_temperature" type="range" min="{{ gwen_settings_payload.ranges.temperature.min }}" max="{{ gwen_settings_payload.ranges.temperature.max }}" step="{{ gwen_settings_payload.ranges.temperature.step }}" value="{{ gwen_settings_payload.defaults.temperature }}" />
+                <div class="range-meta"><span>Ổn định</span><strong id="gwenTemperatureValue">{{ "%.1f"|format(gwen_settings_payload.defaults.temperature) }}</strong><span>Sáng tạo</span></div>
+              </div>
+
+              <div class="control-card">
+                <label for="gwenTopP">Top P</label>
+                <input id="gwenTopP" name="gwen_top_p" type="range" min="{{ gwen_settings_payload.ranges.topP.min }}" max="{{ gwen_settings_payload.ranges.topP.max }}" step="{{ gwen_settings_payload.ranges.topP.step }}" value="{{ gwen_settings_payload.defaults.topP }}" />
+                <div class="range-meta"><span>Tập trung</span><strong id="gwenTopPValue">{{ "%.2f"|format(gwen_settings_payload.defaults.topP) }}</strong><span>Đa dạng</span></div>
+              </div>
+
+              <div class="control-card">
+                <label for="gwenTopK">Top K</label>
+                <input id="gwenTopK" name="gwen_top_k" type="range" min="{{ gwen_settings_payload.ranges.topK.min }}" max="{{ gwen_settings_payload.ranges.topK.max }}" step="{{ gwen_settings_payload.ranges.topK.step }}" value="{{ gwen_settings_payload.defaults.topK }}" />
+                <div class="range-meta"><span>1</span><strong id="gwenTopKValue">{{ gwen_settings_payload.defaults.topK }}</strong><span>100</span></div>
+              </div>
+
+              <div class="control-card">
+                <label for="gwenRepetitionPenalty">Repetition Penalty</label>
+                <input id="gwenRepetitionPenalty" name="gwen_repetition_penalty" type="range" min="{{ gwen_settings_payload.ranges.repetitionPenalty.min }}" max="{{ gwen_settings_payload.ranges.repetitionPenalty.max }}" step="{{ gwen_settings_payload.ranges.repetitionPenalty.step }}" value="{{ gwen_settings_payload.defaults.repetitionPenalty }}" />
+                <div class="range-meta"><span>Cho phép lặp</span><strong id="gwenRepetitionPenaltyValue">{{ "%.1f"|format(gwen_settings_payload.defaults.repetitionPenalty) }}</strong><span>Ngăn lặp</span></div>
+              </div>
+
+              <div class="control-card">
+                <label for="gwenMaxNewTokens">Max New Tokens</label>
+                <input id="gwenMaxNewTokens" name="gwen_max_new_tokens" type="range" min="{{ gwen_settings_payload.ranges.maxNewTokens.min }}" max="{{ gwen_settings_payload.ranges.maxNewTokens.max }}" step="{{ gwen_settings_payload.ranges.maxNewTokens.step }}" value="{{ gwen_settings_payload.defaults.maxNewTokens }}" />
+                <div class="range-meta"><span>512</span><strong id="gwenMaxNewTokensValue">{{ gwen_settings_payload.defaults.maxNewTokens }}</strong><span>8192</span></div>
+              </div>
+            </div>
+
+            <div class="advanced-subsection">
+              <div class="advanced-subsection-title">Code Predictor</div>
+              <label class="toggle-row compact-toggle-row">
+                <input type="checkbox" name="gwen_subtalker_do_sample" id="gwenSubtalkerDoSample" checked />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span>Do Sample</span>
+              </label>
+
+              <div class="advanced-settings-grid">
+                <div class="control-card">
+                  <label for="gwenSubtalkerTemperature">CP Temperature</label>
+                  <input id="gwenSubtalkerTemperature" name="gwen_subtalker_temperature" type="range" min="{{ gwen_settings_payload.ranges.codePredictorTemperature.min }}" max="{{ gwen_settings_payload.ranges.codePredictorTemperature.max }}" step="{{ gwen_settings_payload.ranges.codePredictorTemperature.step }}" value="{{ gwen_settings_payload.defaults.codePredictorTemperature }}" />
+                  <div class="range-meta"><span>Ổn định</span><strong id="gwenSubtalkerTemperatureValue">{{ "%.1f"|format(gwen_settings_payload.defaults.codePredictorTemperature) }}</strong><span>Sáng tạo</span></div>
+                </div>
+
+                <div class="control-card">
+                  <label for="gwenSubtalkerTopK">CP Top K</label>
+                  <input id="gwenSubtalkerTopK" name="gwen_subtalker_top_k" type="range" min="{{ gwen_settings_payload.ranges.codePredictorTopK.min }}" max="{{ gwen_settings_payload.ranges.codePredictorTopK.max }}" step="{{ gwen_settings_payload.ranges.codePredictorTopK.step }}" value="{{ gwen_settings_payload.defaults.codePredictorTopK }}" />
+                  <div class="range-meta"><span>1</span><strong id="gwenSubtalkerTopKValue">{{ gwen_settings_payload.defaults.codePredictorTopK }}</strong><span>100</span></div>
+                </div>
+
+                <div class="control-card">
+                  <label for="gwenSubtalkerTopP">CP Top P</label>
+                  <input id="gwenSubtalkerTopP" name="gwen_subtalker_top_p" type="range" min="{{ gwen_settings_payload.ranges.codePredictorTopP.min }}" max="{{ gwen_settings_payload.ranges.codePredictorTopP.max }}" step="{{ gwen_settings_payload.ranges.codePredictorTopP.step }}" value="{{ gwen_settings_payload.defaults.codePredictorTopP }}" />
+                  <div class="range-meta"><span>Tập trung</span><strong id="gwenSubtalkerTopPValue">{{ "%.2f"|format(gwen_settings_payload.defaults.codePredictorTopP) }}</strong><span>Đa dạng</span></div>
+                </div>
+              </div>
+
+              <div class="sampling-method-line">
+                <span>Sampling Method</span>
+                <strong id="gwenSamplingMethodValue">{{ gwen_settings_payload.defaults.codePredictorSamplingMethod }}</strong>
+                <input type="hidden" id="gwenSamplingMethod" name="gwen_subtalker_sampling_method" value="{{ gwen_settings_payload.defaults.codePredictorSamplingMethod }}" />
+              </div>
+            </div>
+
+            <button class="btn btn-outline" type="button" id="resetGwenSettingsBtn">Reset về mặc định</button>
+          </div>
+        </details>
+
+        <details class="advanced-settings-card" open>
+          <summary class="advanced-settings-summary">Cài Đặt Phát Âm</summary>
+          <div class="advanced-settings-body">
+            <div class="voice-tip-box subtle-tip-box pronunciation-helper-box">
+              <div class="voice-tip-title">Chữ -> cách đọc</div>
+              <div class="voice-tip-text">Mỗi dòng là một quy tắc thay chữ trước khi Gwen-TTS synthesize. Ví dụ: `AI` -> `ây ai`.</div>
+            </div>
+
+            <div id="pronunciationRules" class="pronunciation-rule-list"></div>
+
+            <div class="form-actions pronunciation-actions">
+              <button class="btn btn-outline" type="button" id="addPronunciationRuleBtn">Thêm cặp đọc</button>
+              <button class="btn btn-outline" type="button" id="clearPronunciationRulesBtn">Xóa hết</button>
+            </div>
+          </div>
+        </details>
+
+        <section class="tts-side-card">
+          <div class="tts-side-card-title">Tự Động Phát</div>
+          <div class="toggle-group">
+            <label class="toggle-row">
+              <input type="checkbox" id="autoPlay" checked />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span>Tự phát audio sau khi sinh xong</span>
+            </label>
+          </div>
+        </section>
+        {% else %}
+        <section class="tts-side-card">
+          <div class="tts-side-card-title">Cài Đặt</div>
+
+          <div class="controls-grid">
+            <div class="control-card">
+              <label for="speedRange">Tốc độ đọc</label>
+              <input id="speedRange" name="speed" type="range" min="0.7" max="1.3" step="0.05" value="1" />
+              <div class="range-meta"><span>Chậm</span><strong id="speedValue">1.00x</strong><span>Nhanh</span></div>
+            </div>
+
+            <div class="control-card">
+              <label for="seedInput">Seed</label>
+              <input id="seedInput" name="seed" class="form-control compact-input" type="number" min="0" placeholder="Tùy chọn" />
+              <div class="field-meta single-line">
+                {% if engine_card.id == "f5" %}
+                F5 có thể dùng seed để lặp lại kết quả gần giống.
+                {% else %}
+                Trường này chủ yếu có tác dụng với F5.
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="toggle-group">
+            <label class="toggle-row">
+              <input type="checkbox" name="remove_silence" id="removeSilence" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span>{% if engine_card.id == "f5" %}Loại khoảng lặng đầu/cuối nếu F5 hỗ trợ{% else %}Tùy chọn này chỉ áp dụng khi gọi F5{% endif %}</span>
+            </label>
+            <label class="toggle-row">
+              <input type="checkbox" id="autoPlay" checked />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span>Tự phát audio sau khi sinh xong</span>
+            </label>
+          </div>
+        </section>
+        {% endif %}
+
+        {% if engine_card.metadata %}
+        <section class="tts-side-card">
+          <div class="tts-side-card-title">Metadata</div>
+          <div class="engine-metadata">
+            {% for key, value in engine_card.metadata.items() %}
+            {% if key != "model_selection" %}
+            <div class="metadata-line">
+              <span>{{ key }}</span>
+              <strong>{{ value }}</strong>
+            </div>
+            {% endif %}
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        {% if engine_card.warning %}
+        <section class="tts-side-card">
+          <div class="tts-side-card-title">Lưu Ý Runtime</div>
+          <div class="voice-tip-box subtle-tip-box compact-reference-box">
+            <div class="voice-tip-text">{{ engine_card.warning }}</div>
+          </div>
+        </section>
+        {% endif %}
       </div>
-      {% endif %}
-    </div>
+
+      <div class="tts-sidebar-panel" id="historyPanel">
+        <section class="tts-side-card">
+          <div class="tts-side-card-title">Lịch Sử Phiên Hiện Tại</div>
+          <div id="historyList" class="history-list">
+            <div class="empty-state small">Các lượt generate mới sẽ hiện ở đây.</div>
+          </div>
+        </section>
+      </div>
+    </aside>
   </form>
-
-</section>
+</div>
 
 <div id="loadingOverlay" class="loading-overlay" style="display:none">
   <div class="loading-content">
@@ -487,57 +412,6 @@
     <div class="loading-subtext">Đang xử lý audio mẫu và render kết quả.</div>
   </div>
 </div>
-
-<section class="result-grid">
-  <div class="card">
-    <div class="section-title">
-      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h5a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-      </svg>
-      Kết quả mới nhất
-    </div>
-    <div id="resultState" class="empty-state">
-      Chưa có audio nào được sinh.
-    </div>
-    <div id="resultCard" class="result-card hidden">
-      <div class="result-topline">
-        <div>
-          <div class="result-engine" id="resultEngineLabel"></div>
-          <div class="result-file" id="resultFilename"></div>
-        </div>
-        <span class="status-pill" id="resultRate"></span>
-      </div>
-
-      <div class="wave-demo" aria-hidden="true">
-        <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
-      </div>
-
-      <audio id="resultPlayer" controls class="player"></audio>
-
-      <div class="result-stats" id="resultStats"></div>
-      <div class="result-notes" id="resultNotes"></div>
-
-      <div class="result-actions">
-        <a class="btn" id="downloadLink" href="#" download>Tải WAV</a>
-        <button class="btn btn-outline" type="button" onclick="copyAudioUrl()">Copy link output</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="section-title">
-      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      Lịch sử phiên hiện tại
-    </div>
-    <div id="historyList" class="history-list">
-      <div class="empty-state small">
-        Các lượt generate mới sẽ hiện ở đây.
-      </div>
-    </div>
-  </div>
-</section>
 
 <script>
   let latestAudioUrl = '';
@@ -596,6 +470,16 @@
   const pronunciationRules = document.getElementById('pronunciationRules');
   const addPronunciationRuleBtn = document.getElementById('addPronunciationRuleBtn');
   const clearPronunciationRulesBtn = document.getElementById('clearPronunciationRulesBtn');
+  const settingsTabBtn = document.getElementById('settingsTabBtn');
+  const historyTabBtn = document.getElementById('historyTabBtn');
+  const settingsPanel = document.getElementById('settingsPanel');
+  const historyPanel = document.getElementById('historyPanel');
+  const resultPlayer = document.getElementById('resultPlayer');
+  const resultPlayButton = document.getElementById('resultPlayButton');
+  const resultPlayIcon = document.getElementById('resultPlayIcon');
+  const resultSeekRange = document.getElementById('resultSeekRange');
+  const resultCurrentTime = document.getElementById('resultCurrentTime');
+  const resultDuration = document.getElementById('resultDuration');
   let gwenVoiceMode = ENGINE_ID === 'gwen' && VOICE_PRESETS.length ? 'preset' : 'custom';
 
   function usesPresetVoice() {
@@ -773,7 +657,8 @@
   }
 
   function updateCount() {
-    textCount.textContent = `${textInput.value.trim().length} ký tự`;
+    const limit = Number(textInput.getAttribute('maxlength') || '2500');
+    textCount.textContent = `${textInput.value.trim().length} / ${limit}`;
   }
 
   function updateSpeed() {
@@ -951,6 +836,55 @@
     };
   }
 
+  function setSidebarTab(tab) {
+    const showHistory = tab === 'history';
+    if (settingsTabBtn && historyTabBtn) {
+      settingsTabBtn.classList.toggle('active', !showHistory);
+      historyTabBtn.classList.toggle('active', showHistory);
+    }
+    if (settingsPanel && historyPanel) {
+      settingsPanel.classList.toggle('active', !showHistory);
+      historyPanel.classList.toggle('active', showHistory);
+    }
+  }
+
+  function formatAudioTime(totalSeconds) {
+    if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {
+      return '00:00';
+    }
+    const seconds = Math.floor(totalSeconds);
+    const minutes = Math.floor(seconds / 60);
+    const remain = seconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(remain).padStart(2, '0')}`;
+  }
+
+  function syncPlayIcon() {
+    if (!resultPlayIcon || !resultPlayer) {
+      return;
+    }
+    resultPlayIcon.innerHTML = resultPlayer.paused
+      ? '<path d="M8 5.14v13.72a1 1 0 0 0 1.53.85l10.86-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14z"></path>'
+      : '<path d="M7 5a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1zm10 0a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1z"></path>';
+  }
+
+  function syncResultPlayerUi() {
+    if (!resultPlayer) {
+      return;
+    }
+    const duration = Number.isFinite(resultPlayer.duration) ? resultPlayer.duration : 0;
+    const currentTime = Number.isFinite(resultPlayer.currentTime) ? resultPlayer.currentTime : 0;
+    if (resultSeekRange) {
+      resultSeekRange.value = duration > 0 ? String(Math.round((currentTime / duration) * 1000)) : '0';
+    }
+    if (resultCurrentTime) {
+      resultCurrentTime.textContent = formatAudioTime(currentTime);
+    }
+    if (resultDuration) {
+      resultDuration.textContent = formatAudioTime(duration);
+    }
+    syncPlayIcon();
+  }
+
   function resetStudio() {
     document.getElementById('ttsForm').reset();
     uploadFileLabel.textContent = 'Chưa có file nào được chọn';
@@ -959,6 +893,12 @@
     updateGwenAdvancedSettingsUi();
     syncModelOptions(false);
     resetPronunciationRules();
+    if (resultPlayer) {
+      resultPlayer.pause();
+      resultPlayer.removeAttribute('src');
+      resultPlayer.load();
+      syncResultPlayerUi();
+    }
     if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
       presetVoiceIdInput.value = VOICE_PRESETS[0].id;
       setGwenVoiceMode('preset');
@@ -1025,9 +965,9 @@
     `;
     renderNotes(payload.notes);
 
-    const player = document.getElementById('resultPlayer');
-    player.src = payload.audio_url;
-    player.load();
+    resultPlayer.src = payload.audio_url;
+    resultPlayer.load();
+    syncResultPlayerUi();
 
     latestAudioUrl = payload.audio_url;
     latestAudioName = payload.download_name;
@@ -1036,8 +976,37 @@
     downloadLink.setAttribute('download', latestAudioName);
 
     if (document.getElementById('autoPlay').checked) {
-      player.play().catch(() => {});
+      resultPlayer.play().catch(() => {});
     }
+  }
+
+  if (settingsTabBtn && historyTabBtn) {
+    settingsTabBtn.addEventListener('click', () => setSidebarTab('settings'));
+    historyTabBtn.addEventListener('click', () => setSidebarTab('history'));
+  }
+  if (resultPlayButton && resultPlayer) {
+    resultPlayButton.addEventListener('click', () => {
+      if (resultPlayer.paused) {
+        resultPlayer.play().catch(() => {});
+      } else {
+        resultPlayer.pause();
+      }
+    });
+  }
+  if (resultSeekRange && resultPlayer) {
+    resultSeekRange.addEventListener('input', () => {
+      const duration = Number.isFinite(resultPlayer.duration) ? resultPlayer.duration : 0;
+      if (!duration) {
+        return;
+      }
+      resultPlayer.currentTime = (Number(resultSeekRange.value) / 1000) * duration;
+      syncResultPlayerUi();
+    });
+  }
+  if (resultPlayer) {
+    ['loadedmetadata', 'timeupdate', 'play', 'pause', 'ended'].forEach((eventName) => {
+      resultPlayer.addEventListener(eventName, syncResultPlayerUi);
+    });
   }
 
   textInput.addEventListener('input', updateCount);
@@ -1153,6 +1122,8 @@
   updateGwenAdvancedSettingsUi();
   syncModelOptions(false);
   resetPronunciationRules();
+  setSidebarTab('settings');
+  syncResultPlayerUi();
   if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
     presetVoiceIdInput.value = VOICE_PRESETS[0].id;
     setGwenVoiceMode('preset');
@@ -1160,3 +1131,4 @@
 </script>
 
 {% endblock %}
+
