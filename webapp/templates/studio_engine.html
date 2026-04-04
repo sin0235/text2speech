@@ -27,6 +27,7 @@
 
   <form id="ttsForm" class="studio-layout" enctype="multipart/form-data">
     <input type="hidden" name="engine" value="{{ engine_card.id }}" />
+    <input type="hidden" name="preset_voice_id" id="presetVoiceId" value="" />
 
     <div class="studio-primary">
       <div class="form-group">
@@ -48,6 +49,47 @@
           <span>Khuyến nghị 1 đến 6 câu cho mỗi lượt</span>
         </div>
       </div>
+
+      {% if engine_card.id == "gwen" and preset_voices_payload %}
+      <div class="form-group">
+        <label>Giọng có sẵn của model gốc</label>
+        <div class="voice-source-toggle">
+          <button type="button" class="voice-source-btn active" id="presetModeBtn">{{ preset_voices_payload|length }} giọng có sẵn</button>
+          <button type="button" class="voice-source-btn" id="customModeBtn">Clone từ audio riêng</button>
+        </div>
+
+        <div id="presetVoiceSection" class="preset-voice-section">
+          <div class="preset-voice-grid">
+            {% for voice in preset_voices_payload %}
+            <button
+              type="button"
+              class="preset-voice-card{% if loop.first %} active{% endif %}"
+              data-voice-id="{{ voice.id }}"
+            >
+              <span class="preset-voice-avatar">{{ voice.avatar }}</span>
+              <span class="preset-voice-name">{{ voice.name }}</span>
+              <span class="preset-voice-style">{{ voice.style }}</span>
+            </button>
+            {% endfor %}
+          </div>
+
+          <div class="preset-voice-detail" id="presetVoiceDetail">
+            <div class="preset-voice-detail-head">
+              <div class="preset-voice-detail-id" id="presetVoiceAvatar"></div>
+              <div>
+                <div class="preset-voice-detail-name" id="presetVoiceName"></div>
+                <div class="preset-voice-detail-style" id="presetVoiceStyle"></div>
+              </div>
+            </div>
+            <audio id="presetVoicePlayer" controls class="player compact-player"></audio>
+            <div class="voice-tip-box subtle-tip-box">
+              <div class="voice-tip-title">Transcript chuẩn của preset</div>
+              <div class="voice-tip-text" id="presetVoiceReferenceText"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
 
       <div class="form-group">
         <label for="modelSelect">Chọn model</label>
@@ -114,7 +156,7 @@
         <div class="voice-tip-text">{{ engine_card.recommended_for }}</div>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" id="customReferenceGroup">
         <label for="referenceAudio">Audio tham chiếu</label>
         <label class="upload-box" for="referenceAudio">
           <input id="referenceAudio" name="reference_audio" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*" />
@@ -135,6 +177,225 @@
         </div>
       </div>
 
+      {% if engine_card.id == "gwen" and gwen_settings_payload %}
+      <details class="advanced-settings-card">
+        <summary class="advanced-settings-summary">Cài đặt nâng cao</summary>
+        <div class="advanced-settings-body">
+          <div class="advanced-settings-grid">
+            <div class="control-card">
+              <label for="speedRange">Tốc độ</label>
+              <input
+                id="speedRange"
+                name="speed"
+                type="range"
+                min="{{ gwen_settings_payload.ranges.speed.min }}"
+                max="{{ gwen_settings_payload.ranges.speed.max }}"
+                step="{{ gwen_settings_payload.ranges.speed.step }}"
+                value="{{ gwen_settings_payload.defaults.speed }}"
+              />
+              <div class="range-meta">
+                <span>Chậm</span>
+                <strong id="speedValue">{{ "%.2f"|format(gwen_settings_payload.defaults.speed) }}x</strong>
+                <span>Nhanh</span>
+              </div>
+            </div>
+
+            <div class="control-card">
+              <label for="gwenTemperature">Temperature</label>
+              <input
+                id="gwenTemperature"
+                name="gwen_temperature"
+                type="range"
+                min="{{ gwen_settings_payload.ranges.temperature.min }}"
+                max="{{ gwen_settings_payload.ranges.temperature.max }}"
+                step="{{ gwen_settings_payload.ranges.temperature.step }}"
+                value="{{ gwen_settings_payload.defaults.temperature }}"
+              />
+              <div class="range-meta">
+                <span>Ổn định</span>
+                <strong id="gwenTemperatureValue">{{ "%.1f"|format(gwen_settings_payload.defaults.temperature) }}</strong>
+                <span>Sáng tạo</span>
+              </div>
+            </div>
+
+            <div class="control-card">
+              <label for="gwenTopP">Top P</label>
+              <input
+                id="gwenTopP"
+                name="gwen_top_p"
+                type="range"
+                min="{{ gwen_settings_payload.ranges.topP.min }}"
+                max="{{ gwen_settings_payload.ranges.topP.max }}"
+                step="{{ gwen_settings_payload.ranges.topP.step }}"
+                value="{{ gwen_settings_payload.defaults.topP }}"
+              />
+              <div class="range-meta">
+                <span>Tập trung</span>
+                <strong id="gwenTopPValue">{{ "%.2f"|format(gwen_settings_payload.defaults.topP) }}</strong>
+                <span>Đa dạng</span>
+              </div>
+            </div>
+
+            <div class="control-card">
+              <label for="gwenTopK">Top K</label>
+              <input
+                id="gwenTopK"
+                name="gwen_top_k"
+                type="range"
+                min="{{ gwen_settings_payload.ranges.topK.min }}"
+                max="{{ gwen_settings_payload.ranges.topK.max }}"
+                step="{{ gwen_settings_payload.ranges.topK.step }}"
+                value="{{ gwen_settings_payload.defaults.topK }}"
+              />
+              <div class="range-meta">
+                <span>1</span>
+                <strong id="gwenTopKValue">{{ gwen_settings_payload.defaults.topK }}</strong>
+                <span>100</span>
+              </div>
+            </div>
+
+            <div class="control-card">
+              <label for="gwenRepetitionPenalty">Repetition Penalty</label>
+              <input
+                id="gwenRepetitionPenalty"
+                name="gwen_repetition_penalty"
+                type="range"
+                min="{{ gwen_settings_payload.ranges.repetitionPenalty.min }}"
+                max="{{ gwen_settings_payload.ranges.repetitionPenalty.max }}"
+                step="{{ gwen_settings_payload.ranges.repetitionPenalty.step }}"
+                value="{{ gwen_settings_payload.defaults.repetitionPenalty }}"
+              />
+              <div class="range-meta">
+                <span>Cho phép lặp</span>
+                <strong id="gwenRepetitionPenaltyValue">{{ "%.1f"|format(gwen_settings_payload.defaults.repetitionPenalty) }}</strong>
+                <span>Ngăn lặp</span>
+              </div>
+            </div>
+
+            <div class="control-card">
+              <label for="gwenMaxNewTokens">Max New Tokens</label>
+              <input
+                id="gwenMaxNewTokens"
+                name="gwen_max_new_tokens"
+                type="range"
+                min="{{ gwen_settings_payload.ranges.maxNewTokens.min }}"
+                max="{{ gwen_settings_payload.ranges.maxNewTokens.max }}"
+                step="{{ gwen_settings_payload.ranges.maxNewTokens.step }}"
+                value="{{ gwen_settings_payload.defaults.maxNewTokens }}"
+              />
+              <div class="range-meta">
+                <span>512</span>
+                <strong id="gwenMaxNewTokensValue">{{ gwen_settings_payload.defaults.maxNewTokens }}</strong>
+                <span>8192</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="advanced-subsection">
+            <div class="advanced-subsection-title">Code Predictor</div>
+            <label class="toggle-row compact-toggle-row">
+              <input type="checkbox" name="gwen_subtalker_do_sample" id="gwenSubtalkerDoSample" checked />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span>Do Sample</span>
+            </label>
+
+            <div class="advanced-settings-grid">
+              <div class="control-card">
+                <label for="gwenSubtalkerTemperature">CP Temperature</label>
+                <input
+                  id="gwenSubtalkerTemperature"
+                  name="gwen_subtalker_temperature"
+                  type="range"
+                  min="{{ gwen_settings_payload.ranges.codePredictorTemperature.min }}"
+                  max="{{ gwen_settings_payload.ranges.codePredictorTemperature.max }}"
+                  step="{{ gwen_settings_payload.ranges.codePredictorTemperature.step }}"
+                  value="{{ gwen_settings_payload.defaults.codePredictorTemperature }}"
+                />
+                <div class="range-meta">
+                  <span>Ổn định</span>
+                  <strong id="gwenSubtalkerTemperatureValue">{{ "%.1f"|format(gwen_settings_payload.defaults.codePredictorTemperature) }}</strong>
+                  <span>Sáng tạo</span>
+                </div>
+              </div>
+
+              <div class="control-card">
+                <label for="gwenSubtalkerTopK">CP Top K</label>
+                <input
+                  id="gwenSubtalkerTopK"
+                  name="gwen_subtalker_top_k"
+                  type="range"
+                  min="{{ gwen_settings_payload.ranges.codePredictorTopK.min }}"
+                  max="{{ gwen_settings_payload.ranges.codePredictorTopK.max }}"
+                  step="{{ gwen_settings_payload.ranges.codePredictorTopK.step }}"
+                  value="{{ gwen_settings_payload.defaults.codePredictorTopK }}"
+                />
+                <div class="range-meta">
+                  <span>1</span>
+                  <strong id="gwenSubtalkerTopKValue">{{ gwen_settings_payload.defaults.codePredictorTopK }}</strong>
+                  <span>100</span>
+                </div>
+              </div>
+
+              <div class="control-card">
+                <label for="gwenSubtalkerTopP">CP Top P</label>
+                <input
+                  id="gwenSubtalkerTopP"
+                  name="gwen_subtalker_top_p"
+                  type="range"
+                  min="{{ gwen_settings_payload.ranges.codePredictorTopP.min }}"
+                  max="{{ gwen_settings_payload.ranges.codePredictorTopP.max }}"
+                  step="{{ gwen_settings_payload.ranges.codePredictorTopP.step }}"
+                  value="{{ gwen_settings_payload.defaults.codePredictorTopP }}"
+                />
+                <div class="range-meta">
+                  <span>Tập trung</span>
+                  <strong id="gwenSubtalkerTopPValue">{{ "%.2f"|format(gwen_settings_payload.defaults.codePredictorTopP) }}</strong>
+                  <span>Đa dạng</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="sampling-method-line">
+              <span>Sampling Method</span>
+              <strong id="gwenSamplingMethodValue">{{ gwen_settings_payload.defaults.codePredictorSamplingMethod }}</strong>
+              <input
+                type="hidden"
+                id="gwenSamplingMethod"
+                name="gwen_subtalker_sampling_method"
+                value="{{ gwen_settings_payload.defaults.codePredictorSamplingMethod }}"
+              />
+            </div>
+          </div>
+
+          <button class="btn btn-outline" type="button" id="resetGwenSettingsBtn">Reset về mặc định</button>
+        </div>
+      </details>
+
+      <details class="advanced-settings-card">
+        <summary class="advanced-settings-summary">Cài Đặt Phát Âm</summary>
+        <div class="advanced-settings-body">
+          <div class="voice-tip-box subtle-tip-box pronunciation-helper-box">
+            <div class="voice-tip-title">Chữ -> cách đọc</div>
+            <div class="voice-tip-text">Mỗi dòng là một quy tắc thay chữ trước khi Gwen-TTS synthesize. Ví dụ: `AI` -> `ây ai`.</div>
+          </div>
+
+          <div id="pronunciationRules" class="pronunciation-rule-list"></div>
+
+          <div class="form-actions pronunciation-actions">
+            <button class="btn btn-outline" type="button" id="addPronunciationRuleBtn">Thêm cặp đọc</button>
+            <button class="btn btn-outline" type="button" id="clearPronunciationRulesBtn">Xóa hết</button>
+          </div>
+        </div>
+      </details>
+
+      <div class="toggle-group">
+        <label class="toggle-row">
+          <input type="checkbox" id="autoPlay" checked />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span>Tự phát audio sau khi sinh xong</span>
+        </label>
+      </div>
+      {% else %}
       <div class="controls-grid">
         <div class="control-card">
           <label for="speedRange">Tốc độ đọc</label>
@@ -177,6 +438,7 @@
           <span>Tự phát audio sau khi sinh xong</span>
         </label>
       </div>
+      {% endif %}
 
       {% if engine_card.metadata %}
       <div class="engine-metadata">
@@ -282,6 +544,8 @@
   let latestAudioName = '';
   const ENGINE_ID = {{ engine_card.id|tojson }};
   const MODEL_SELECTION = {{ model_selection|tojson }};
+  const VOICE_PRESETS = {{ preset_voices_payload|tojson }};
+  const GWEN_SETTINGS = {{ gwen_settings_payload|tojson }};
   const MAX_UPLOAD_MB = {{ max_upload_mb|tojson }};
   const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
@@ -298,6 +562,102 @@
   const customModelInput = document.getElementById('customModelInput');
   const modelHintPrimary = document.getElementById('modelHintPrimary');
   const modelHintSecondary = document.getElementById('modelHintSecondary');
+  const presetVoiceIdInput = document.getElementById('presetVoiceId');
+  const presetModeBtn = document.getElementById('presetModeBtn');
+  const customModeBtn = document.getElementById('customModeBtn');
+  const presetVoiceSection = document.getElementById('presetVoiceSection');
+  const presetVoiceCards = Array.from(document.querySelectorAll('.preset-voice-card'));
+  const presetVoiceAvatar = document.getElementById('presetVoiceAvatar');
+  const presetVoiceName = document.getElementById('presetVoiceName');
+  const presetVoiceStyle = document.getElementById('presetVoiceStyle');
+  const presetVoiceReferenceText = document.getElementById('presetVoiceReferenceText');
+  const presetVoicePlayer = document.getElementById('presetVoicePlayer');
+  const customReferenceGroup = document.getElementById('customReferenceGroup');
+  const gwenTemperature = document.getElementById('gwenTemperature');
+  const gwenTemperatureValue = document.getElementById('gwenTemperatureValue');
+  const gwenTopP = document.getElementById('gwenTopP');
+  const gwenTopPValue = document.getElementById('gwenTopPValue');
+  const gwenTopK = document.getElementById('gwenTopK');
+  const gwenTopKValue = document.getElementById('gwenTopKValue');
+  const gwenRepetitionPenalty = document.getElementById('gwenRepetitionPenalty');
+  const gwenRepetitionPenaltyValue = document.getElementById('gwenRepetitionPenaltyValue');
+  const gwenMaxNewTokens = document.getElementById('gwenMaxNewTokens');
+  const gwenMaxNewTokensValue = document.getElementById('gwenMaxNewTokensValue');
+  const gwenSubtalkerDoSample = document.getElementById('gwenSubtalkerDoSample');
+  const gwenSubtalkerTemperature = document.getElementById('gwenSubtalkerTemperature');
+  const gwenSubtalkerTemperatureValue = document.getElementById('gwenSubtalkerTemperatureValue');
+  const gwenSubtalkerTopK = document.getElementById('gwenSubtalkerTopK');
+  const gwenSubtalkerTopKValue = document.getElementById('gwenSubtalkerTopKValue');
+  const gwenSubtalkerTopP = document.getElementById('gwenSubtalkerTopP');
+  const gwenSubtalkerTopPValue = document.getElementById('gwenSubtalkerTopPValue');
+  const gwenSamplingMethod = document.getElementById('gwenSamplingMethod');
+  const gwenSamplingMethodValue = document.getElementById('gwenSamplingMethodValue');
+  const resetGwenSettingsBtn = document.getElementById('resetGwenSettingsBtn');
+  const pronunciationRules = document.getElementById('pronunciationRules');
+  const addPronunciationRuleBtn = document.getElementById('addPronunciationRuleBtn');
+  const clearPronunciationRulesBtn = document.getElementById('clearPronunciationRulesBtn');
+  let gwenVoiceMode = ENGINE_ID === 'gwen' && VOICE_PRESETS.length ? 'preset' : 'custom';
+
+  function usesPresetVoice() {
+    return ENGINE_ID === 'gwen' && gwenVoiceMode === 'preset' && !!presetVoiceIdInput && !!presetVoiceIdInput.value;
+  }
+
+  function getActivePresetVoice() {
+    if (!VOICE_PRESETS.length || !presetVoiceIdInput) {
+      return null;
+    }
+    return VOICE_PRESETS.find((voice) => voice.id === presetVoiceIdInput.value) || VOICE_PRESETS[0] || null;
+  }
+
+  function renderPresetVoiceDetail() {
+    const activeVoice = getActivePresetVoice();
+    if (!activeVoice || !presetVoiceAvatar) {
+      return;
+    }
+
+    presetVoiceAvatar.textContent = activeVoice.avatar;
+    presetVoiceName.textContent = activeVoice.name;
+    presetVoiceStyle.textContent = activeVoice.style;
+    presetVoiceReferenceText.textContent = activeVoice.reference_text;
+    presetVoicePlayer.src = activeVoice.audio_url;
+    presetVoicePlayer.load();
+
+    presetVoiceCards.forEach((button) => {
+      button.classList.toggle('active', button.dataset.voiceId === activeVoice.id);
+    });
+  }
+
+  function setGwenVoiceMode(mode) {
+    if (ENGINE_ID !== 'gwen' || !VOICE_PRESETS.length) {
+      return;
+    }
+    gwenVoiceMode = mode === 'custom' ? 'custom' : 'preset';
+
+    if (presetModeBtn && customModeBtn) {
+      presetModeBtn.classList.toggle('active', gwenVoiceMode === 'preset');
+      customModeBtn.classList.toggle('active', gwenVoiceMode === 'custom');
+    }
+    if (presetVoiceSection) {
+      presetVoiceSection.classList.toggle('hidden', gwenVoiceMode !== 'preset');
+    }
+    if (customReferenceGroup) {
+      customReferenceGroup.classList.toggle('hidden', gwenVoiceMode === 'preset');
+    }
+
+    if (gwenVoiceMode === 'preset') {
+      if (!presetVoiceIdInput.value && VOICE_PRESETS[0]) {
+        presetVoiceIdInput.value = VOICE_PRESETS[0].id;
+      }
+      renderPresetVoiceDetail();
+    } else if (presetVoiceIdInput) {
+      presetVoiceIdInput.value = '';
+      if (referenceText.dataset.fromPreset === 'true') {
+        referenceText.value = '';
+      }
+    }
+
+    syncReferenceTextUi();
+  }
 
   function getSelectedVieneuMode() {
     if (ENGINE_ID !== 'vieneu') {
@@ -333,10 +693,26 @@
     const requiresTranscript = selectedEngineRequiresReferenceText();
 
     if (ENGINE_ID === 'gwen') {
-      referenceText.placeholder = 'Gwen-TTS luôn cần transcript đúng với câu đang có trong audio tham chiếu.';
-      referenceHintPrimary.textContent = 'Bắt buộc với Gwen-TTS';
-      referenceHintSecondary.textContent = 'Nhập nguyên câu trong audio mẫu để Gwen dựng voice clone prompt ổn định.';
+      if (usesPresetVoice()) {
+        const activeVoice = getActivePresetVoice();
+        referenceText.value = activeVoice ? activeVoice.reference_text : '';
+        referenceText.dataset.fromPreset = 'true';
+        referenceText.readOnly = true;
+        referenceText.placeholder = 'Preset voice dùng transcript gốc của model.';
+        referenceHintPrimary.textContent = 'Đang dùng transcript chính thức của preset';
+        referenceHintSecondary.textContent = 'Muốn đổi transcript hoặc audio mẫu thì chuyển sang Clone từ audio riêng.';
+      } else {
+        if (referenceText.dataset.fromPreset === 'true') {
+          referenceText.value = '';
+        }
+        referenceText.dataset.fromPreset = 'false';
+        referenceText.readOnly = false;
+        referenceText.placeholder = 'Gwen-TTS luôn cần transcript đúng với câu đang có trong audio tham chiếu.';
+        referenceHintPrimary.textContent = 'Bắt buộc với Gwen-TTS';
+        referenceHintSecondary.textContent = 'Nhập nguyên câu trong audio mẫu để Gwen dựng voice clone prompt ổn định.';
+      }
     } else if (ENGINE_ID === 'vieneu') {
+      referenceText.readOnly = false;
       referenceText.placeholder = requiresTranscript
         ? 'VieNeu Standard/Fast cần transcript đúng với câu đang có trong audio tham chiếu.'
         : 'Có thể nhập transcript để lưu đối chiếu, nhưng mode VieNeu hiện tại không bắt buộc.';
@@ -347,6 +723,7 @@
         ? 'Nhập nguyên câu có trong audio mẫu để VieNeu bám giọng và phát âm chính xác hơn.'
         : 'Nếu vẫn nhập transcript, hệ thống chỉ giữ lại để bạn đối chiếu.';
     } else {
+      referenceText.readOnly = false;
       referenceText.placeholder = 'Nếu audio tham chiếu có lời nói rõ, nhập nguyên câu đó để F5-TTS giữ giọng ổn định hơn.';
       referenceHintPrimary.textContent = 'Khuyến nghị với F5-TTS';
       referenceHintSecondary.textContent = 'F5 không bắt buộc transcript, nhưng có transcript sẽ giữ giọng ổn định hơn.';
@@ -400,7 +777,146 @@
   }
 
   function updateSpeed() {
+    if (!speedRange || !speedValue) {
+      return;
+    }
     speedValue.textContent = `${Number(speedRange.value).toFixed(2)}x`;
+  }
+
+  function updateGwenAdvancedSettingsUi() {
+    if (ENGINE_ID !== 'gwen' || !GWEN_SETTINGS) {
+      return;
+    }
+    if (gwenTemperature && gwenTemperatureValue) {
+      gwenTemperatureValue.textContent = Number(gwenTemperature.value).toFixed(1);
+    }
+    if (gwenTopP && gwenTopPValue) {
+      gwenTopPValue.textContent = Number(gwenTopP.value).toFixed(2);
+    }
+    if (gwenTopK && gwenTopKValue) {
+      gwenTopKValue.textContent = `${Math.round(Number(gwenTopK.value))}`;
+    }
+    if (gwenRepetitionPenalty && gwenRepetitionPenaltyValue) {
+      gwenRepetitionPenaltyValue.textContent = Number(gwenRepetitionPenalty.value).toFixed(1);
+    }
+    if (gwenMaxNewTokens && gwenMaxNewTokensValue) {
+      gwenMaxNewTokensValue.textContent = `${Math.round(Number(gwenMaxNewTokens.value))}`;
+    }
+    if (gwenSubtalkerTemperature && gwenSubtalkerTemperatureValue) {
+      gwenSubtalkerTemperatureValue.textContent = Number(gwenSubtalkerTemperature.value).toFixed(1);
+    }
+    if (gwenSubtalkerTopK && gwenSubtalkerTopKValue) {
+      gwenSubtalkerTopKValue.textContent = `${Math.round(Number(gwenSubtalkerTopK.value))}`;
+    }
+    if (gwenSubtalkerTopP && gwenSubtalkerTopPValue) {
+      gwenSubtalkerTopPValue.textContent = Number(gwenSubtalkerTopP.value).toFixed(2);
+    }
+    if (gwenSamplingMethod && gwenSamplingMethodValue) {
+      gwenSamplingMethodValue.textContent = gwenSamplingMethod.value || 'gumbel';
+    }
+  }
+
+  function createPronunciationRuleRow(source = '', target = '') {
+    const row = document.createElement('div');
+    row.className = 'pronunciation-rule-row';
+    row.innerHTML = `
+      <input
+        type="text"
+        name="pronunciation_from"
+        class="form-control compact-input pronunciation-rule-input"
+        placeholder="Chữ hoặc cụm từ"
+        value="${source.replace(/"/g, '&quot;')}"
+      />
+      <span class="pronunciation-rule-arrow">-></span>
+      <input
+        type="text"
+        name="pronunciation_to"
+        class="form-control compact-input pronunciation-rule-input"
+        placeholder="Cách đọc mong muốn"
+        value="${target.replace(/"/g, '&quot;')}"
+      />
+      <button type="button" class="pronunciation-rule-remove" aria-label="Xóa cặp phát âm">X</button>
+    `;
+
+    const removeButton = row.querySelector('.pronunciation-rule-remove');
+    removeButton.addEventListener('click', () => {
+      row.remove();
+      if (pronunciationRules && !pronunciationRules.children.length) {
+        pronunciationRules.appendChild(createPronunciationRuleRow());
+      }
+    });
+    return row;
+  }
+
+  function resetPronunciationRules() {
+    if (!pronunciationRules) {
+      return;
+    }
+    pronunciationRules.innerHTML = '';
+    pronunciationRules.appendChild(createPronunciationRuleRow());
+  }
+
+  function validatePronunciationRules() {
+    if (!pronunciationRules) {
+      return true;
+    }
+
+    const rows = Array.from(pronunciationRules.querySelectorAll('.pronunciation-rule-row'));
+    for (let index = 0; index < rows.length; index += 1) {
+      const sourceInput = rows[index].querySelector('input[name="pronunciation_from"]');
+      const targetInput = rows[index].querySelector('input[name="pronunciation_to"]');
+      const source = (sourceInput && sourceInput.value || '').trim();
+      const target = (targetInput && targetInput.value || '').trim();
+      if (!!source !== !!target) {
+        alert(`Dòng phát âm ${index + 1} phải có đủ chữ gốc và cách đọc.`);
+        (sourceInput && !source ? sourceInput : targetInput).focus();
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function resetGwenAdvancedSettings() {
+    if (ENGINE_ID !== 'gwen' || !GWEN_SETTINGS) {
+      return;
+    }
+
+    if (speedRange) {
+      speedRange.value = GWEN_SETTINGS.defaults.speed;
+    }
+    if (gwenTemperature) {
+      gwenTemperature.value = GWEN_SETTINGS.defaults.temperature;
+    }
+    if (gwenTopP) {
+      gwenTopP.value = GWEN_SETTINGS.defaults.topP;
+    }
+    if (gwenTopK) {
+      gwenTopK.value = GWEN_SETTINGS.defaults.topK;
+    }
+    if (gwenRepetitionPenalty) {
+      gwenRepetitionPenalty.value = GWEN_SETTINGS.defaults.repetitionPenalty;
+    }
+    if (gwenMaxNewTokens) {
+      gwenMaxNewTokens.value = GWEN_SETTINGS.defaults.maxNewTokens;
+    }
+    if (gwenSubtalkerDoSample) {
+      gwenSubtalkerDoSample.checked = !!GWEN_SETTINGS.defaults.codePredictorDoSample;
+    }
+    if (gwenSubtalkerTemperature) {
+      gwenSubtalkerTemperature.value = GWEN_SETTINGS.defaults.codePredictorTemperature;
+    }
+    if (gwenSubtalkerTopK) {
+      gwenSubtalkerTopK.value = GWEN_SETTINGS.defaults.codePredictorTopK;
+    }
+    if (gwenSubtalkerTopP) {
+      gwenSubtalkerTopP.value = GWEN_SETTINGS.defaults.codePredictorTopP;
+    }
+    if (gwenSamplingMethod) {
+      gwenSamplingMethod.value = GWEN_SETTINGS.defaults.codePredictorSamplingMethod;
+    }
+
+    updateSpeed();
+    updateGwenAdvancedSettingsUi();
   }
 
   function fillExample(text) {
@@ -440,7 +956,13 @@
     uploadFileLabel.textContent = 'Chưa có file nào được chọn';
     updateCount();
     updateSpeed();
+    updateGwenAdvancedSettingsUi();
     syncModelOptions(false);
+    resetPronunciationRules();
+    if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
+      presetVoiceIdInput.value = VOICE_PRESETS[0].id;
+      setGwenVoiceMode('preset');
+    }
   }
 
   async function copyAudioUrl() {
@@ -519,9 +1041,53 @@
   }
 
   textInput.addEventListener('input', updateCount);
-  speedRange.addEventListener('input', updateSpeed);
+  if (speedRange) {
+    speedRange.addEventListener('input', () => {
+      updateSpeed();
+      updateGwenAdvancedSettingsUi();
+    });
+  }
   modelSelect.addEventListener('change', syncModelUi);
   customModelInput.addEventListener('input', syncReferenceTextUi);
+  [
+    gwenTemperature,
+    gwenTopP,
+    gwenTopK,
+    gwenRepetitionPenalty,
+    gwenMaxNewTokens,
+    gwenSubtalkerTemperature,
+    gwenSubtalkerTopK,
+    gwenSubtalkerTopP,
+    gwenSubtalkerDoSample,
+  ].filter(Boolean).forEach((input) => {
+    input.addEventListener('input', updateGwenAdvancedSettingsUi);
+    input.addEventListener('change', updateGwenAdvancedSettingsUi);
+  });
+  if (resetGwenSettingsBtn) {
+    resetGwenSettingsBtn.addEventListener('click', resetGwenAdvancedSettings);
+  }
+  if (addPronunciationRuleBtn) {
+    addPronunciationRuleBtn.addEventListener('click', () => {
+      pronunciationRules.appendChild(createPronunciationRuleRow());
+    });
+  }
+  if (clearPronunciationRulesBtn) {
+    clearPronunciationRulesBtn.addEventListener('click', resetPronunciationRules);
+  }
+  if (presetModeBtn && customModeBtn) {
+    presetModeBtn.addEventListener('click', () => setGwenVoiceMode('preset'));
+    customModeBtn.addEventListener('click', () => setGwenVoiceMode('custom'));
+  }
+  presetVoiceCards.forEach((button) => {
+    button.addEventListener('click', () => {
+      if (!presetVoiceIdInput) {
+        return;
+      }
+      presetVoiceIdInput.value = button.dataset.voiceId || '';
+      renderPresetVoiceDetail();
+      syncReferenceTextUi();
+    });
+  });
   referenceAudio.addEventListener('change', function () {
     const file = this.files && this.files[0];
     uploadFileLabel.textContent = file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : 'Chưa có file nào được chọn';
@@ -534,7 +1100,10 @@
       alert('Vui lòng nhập văn bản tiếng Việt cần chuyển giọng.');
       return;
     }
-    if (!referenceAudio.files || !referenceAudio.files.length) {
+    if (!validatePronunciationRules()) {
+      return;
+    }
+    if (!usesPresetVoice() && (!referenceAudio.files || !referenceAudio.files.length)) {
       alert('Vui lòng chọn audio tham chiếu trước khi generate.');
       return;
     }
@@ -547,7 +1116,7 @@
       }
       return;
     }
-    const selectedFile = referenceAudio.files[0];
+    const selectedFile = referenceAudio.files && referenceAudio.files[0];
     if (selectedFile && selectedFile.size > MAX_UPLOAD_BYTES) {
       alert(`File audio vượt quá ${MAX_UPLOAD_MB} MB. Hãy cắt ngắn file rồi thử lại.`);
       return;
@@ -581,7 +1150,13 @@
 
   updateCount();
   updateSpeed();
+  updateGwenAdvancedSettingsUi();
   syncModelOptions(false);
+  resetPronunciationRules();
+  if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
+    presetVoiceIdInput.value = VOICE_PRESETS[0].id;
+    setGwenVoiceMode('preset');
+  }
 </script>
 
 {% endblock %}

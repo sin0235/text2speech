@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -19,6 +20,189 @@ import soundfile as sf
 
 class TTSError(RuntimeError):
     """Raised when the selected TTS engine cannot complete synthesis."""
+
+
+GWEN_GENERATION_DEFAULTS: dict[str, Any] = {
+    "speed": 1.0,
+    "temperature": 0.3,
+    "top_k": 20,
+    "top_p": 0.9,
+    "max_new_tokens": 4096,
+    "repetition_penalty": 2.0,
+    "subtalker_do_sample": True,
+    "subtalker_temperature": 0.1,
+    "subtalker_top_k": 20,
+    "subtalker_top_p": 1.0,
+    "subtalker_sampling_method": "gumbel",
+}
+
+GWEN_GENERATION_LIMITS: dict[str, dict[str, float | int]] = {
+    "speed": {"min": 0.7, "max": 1.3, "step": 0.05},
+    "temperature": {"min": 0.1, "max": 1.0, "step": 0.1},
+    "top_k": {"min": 1, "max": 100, "step": 1},
+    "top_p": {"min": 0.1, "max": 1.0, "step": 0.05},
+    "max_new_tokens": {"min": 512, "max": 8192, "step": 256},
+    "repetition_penalty": {"min": 1.0, "max": 3.0, "step": 0.1},
+    "subtalker_temperature": {"min": 0.1, "max": 1.0, "step": 0.1},
+    "subtalker_top_k": {"min": 1, "max": 100, "step": 1},
+    "subtalker_top_p": {"min": 0.1, "max": 1.0, "step": 0.05},
+}
+
+
+def _clamp_float(value: Any, *, minimum: float, maximum: float, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = float(default)
+    return min(max(parsed, float(minimum)), float(maximum))
+
+
+def _clamp_int(value: Any, *, minimum: int, maximum: int, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return min(max(parsed, int(minimum)), int(maximum))
+
+
+def _normalize_gwen_generation_config(raw: dict[str, Any] | None = None) -> dict[str, Any]:
+    merged = dict(GWEN_GENERATION_DEFAULTS)
+    if raw:
+        merged.update(raw)
+    raw_subtalker_do_sample = merged.get("subtalker_do_sample", GWEN_GENERATION_DEFAULTS["subtalker_do_sample"])
+    if isinstance(raw_subtalker_do_sample, str):
+        normalized_subtalker_do_sample = raw_subtalker_do_sample.strip().lower() in {"1", "true", "yes", "on"}
+    else:
+        normalized_subtalker_do_sample = bool(raw_subtalker_do_sample)
+
+    return {
+        "speed": _clamp_float(
+            merged.get("speed"),
+            minimum=float(GWEN_GENERATION_LIMITS["speed"]["min"]),
+            maximum=float(GWEN_GENERATION_LIMITS["speed"]["max"]),
+            default=float(GWEN_GENERATION_DEFAULTS["speed"]),
+        ),
+        "temperature": _clamp_float(
+            merged.get("temperature"),
+            minimum=float(GWEN_GENERATION_LIMITS["temperature"]["min"]),
+            maximum=float(GWEN_GENERATION_LIMITS["temperature"]["max"]),
+            default=float(GWEN_GENERATION_DEFAULTS["temperature"]),
+        ),
+        "top_k": _clamp_int(
+            merged.get("top_k"),
+            minimum=int(GWEN_GENERATION_LIMITS["top_k"]["min"]),
+            maximum=int(GWEN_GENERATION_LIMITS["top_k"]["max"]),
+            default=int(GWEN_GENERATION_DEFAULTS["top_k"]),
+        ),
+        "top_p": _clamp_float(
+            merged.get("top_p"),
+            minimum=float(GWEN_GENERATION_LIMITS["top_p"]["min"]),
+            maximum=float(GWEN_GENERATION_LIMITS["top_p"]["max"]),
+            default=float(GWEN_GENERATION_DEFAULTS["top_p"]),
+        ),
+        "max_new_tokens": _clamp_int(
+            merged.get("max_new_tokens"),
+            minimum=int(GWEN_GENERATION_LIMITS["max_new_tokens"]["min"]),
+            maximum=int(GWEN_GENERATION_LIMITS["max_new_tokens"]["max"]),
+            default=int(GWEN_GENERATION_DEFAULTS["max_new_tokens"]),
+        ),
+        "repetition_penalty": _clamp_float(
+            merged.get("repetition_penalty"),
+            minimum=float(GWEN_GENERATION_LIMITS["repetition_penalty"]["min"]),
+            maximum=float(GWEN_GENERATION_LIMITS["repetition_penalty"]["max"]),
+            default=float(GWEN_GENERATION_DEFAULTS["repetition_penalty"]),
+        ),
+        "subtalker_do_sample": normalized_subtalker_do_sample,
+        "subtalker_temperature": _clamp_float(
+            merged.get("subtalker_temperature"),
+            minimum=float(GWEN_GENERATION_LIMITS["subtalker_temperature"]["min"]),
+            maximum=float(GWEN_GENERATION_LIMITS["subtalker_temperature"]["max"]),
+            default=float(GWEN_GENERATION_DEFAULTS["subtalker_temperature"]),
+        ),
+        "subtalker_top_k": _clamp_int(
+            merged.get("subtalker_top_k"),
+            minimum=int(GWEN_GENERATION_LIMITS["subtalker_top_k"]["min"]),
+            maximum=int(GWEN_GENERATION_LIMITS["subtalker_top_k"]["max"]),
+            default=int(GWEN_GENERATION_DEFAULTS["subtalker_top_k"]),
+        ),
+        "subtalker_top_p": _clamp_float(
+            merged.get("subtalker_top_p"),
+            minimum=float(GWEN_GENERATION_LIMITS["subtalker_top_p"]["min"]),
+            maximum=float(GWEN_GENERATION_LIMITS["subtalker_top_p"]["max"]),
+            default=float(GWEN_GENERATION_DEFAULTS["subtalker_top_p"]),
+        ),
+        "subtalker_sampling_method": "gumbel",
+    }
+
+
+def _build_gwen_generation_kwargs(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    normalized = _normalize_gwen_generation_config(config)
+    return {
+        "speed": normalized["speed"],
+        "temperature": normalized["temperature"],
+        "top_k": normalized["top_k"],
+        "top_p": normalized["top_p"],
+        "max_new_tokens": normalized["max_new_tokens"],
+        "repetition_penalty": normalized["repetition_penalty"],
+        "subtalker_do_sample": normalized["subtalker_do_sample"],
+        "subtalker_temperature": normalized["subtalker_temperature"],
+        "subtalker_top_k": normalized["subtalker_top_k"],
+        "subtalker_top_p": normalized["subtalker_top_p"],
+    }
+
+
+def _parse_pronunciation_overrides(
+    sources: list[str] | None = None,
+    targets: list[str] | None = None,
+) -> list[tuple[str, str]]:
+    parsed: list[tuple[str, str]] = []
+    for source_raw, target_raw in zip(sources or [], targets or []):
+        source = re.sub(r"\s+", " ", str(source_raw or "").strip())
+        target = re.sub(r"\s+", " ", str(target_raw or "").strip())
+        if not source or not target:
+            continue
+        parsed.append((source, target))
+    return parsed
+
+
+def _apply_pronunciation_overrides(
+    text: str,
+    overrides: list[tuple[str, str]] | None = None,
+) -> tuple[str, list[tuple[str, str, int]]]:
+    if not overrides:
+        return text, []
+
+    updated_text = text
+    applied: list[tuple[str, str, int]] = []
+    for source, target in sorted(overrides, key=lambda item: len(item[0]), reverse=True):
+        match_count = updated_text.count(source)
+        if match_count <= 0:
+            continue
+        updated_text = updated_text.replace(source, target)
+        applied.append((source, target, match_count))
+    return updated_text, applied
+
+
+def _summarize_gwen_generation_changes(config: dict[str, Any] | None = None) -> str | None:
+    normalized = _normalize_gwen_generation_config(config)
+    changes: list[str] = []
+    for key, label, formatter in (
+        ("speed", "speed", lambda value: f"{float(value):.2f}x"),
+        ("temperature", "temperature", lambda value: f"{float(value):.1f}"),
+        ("top_p", "top_p", lambda value: f"{float(value):.2f}"),
+        ("top_k", "top_k", lambda value: str(int(value))),
+        ("repetition_penalty", "repetition_penalty", lambda value: f"{float(value):.1f}"),
+        ("max_new_tokens", "max_new_tokens", lambda value: str(int(value))),
+        ("subtalker_do_sample", "cp_do_sample", lambda value: "on" if value else "off"),
+        ("subtalker_temperature", "cp_temperature", lambda value: f"{float(value):.1f}"),
+        ("subtalker_top_k", "cp_top_k", lambda value: str(int(value))),
+        ("subtalker_top_p", "cp_top_p", lambda value: f"{float(value):.2f}"),
+    ):
+        if normalized[key] != GWEN_GENERATION_DEFAULTS[key]:
+            changes.append(f"{label}={formatter(normalized[key])}")
+    if not changes:
+        return None
+    return ", ".join(changes)
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -55,6 +239,21 @@ def _parse_named_choices(raw: str) -> list[tuple[str, str]]:
         if value:
             pairs.append((label, value))
     return pairs
+
+
+def _parse_enabled_engines(raw: str) -> list[str]:
+    if not raw:
+        return ["gwen", "vieneu", "f5"]
+
+    engines: list[str] = []
+    seen: set[str] = set()
+    for item in re.split(r"[\s,;|]+", raw):
+        normalized = _normalize_engine_id(item, default="")
+        if normalized not in {"gwen", "vieneu", "f5"} or normalized in seen:
+            continue
+        engines.append(normalized)
+        seen.add(normalized)
+    return engines or ["gwen", "vieneu", "f5"]
 
 
 def _sanitize_cache_token(value: str, fallback: str = "default") -> str:
@@ -494,6 +693,37 @@ def _load_audio_mono_float(path: Path, target_sr: int) -> tuple[np.ndarray, int]
     return audio_np, sr
 
 
+def _inspect_audio_mono_float(path: Path) -> tuple[np.ndarray, int]:
+    try:
+        audio, sr = sf.read(path, always_2d=False)
+        audio_np = np.asarray(audio, dtype=np.float32)
+    except Exception:
+        try:
+            import librosa
+        except Exception as exc:
+            raise TTSError(
+                "Không đọc được audio tham chiếu. Hãy upload WAV/FLAC hoặc cài `librosa` để hỗ trợ MP3/M4A."
+            ) from exc
+        audio_np, sr = librosa.load(str(path), sr=None, mono=False)
+        audio_np = np.asarray(audio_np, dtype=np.float32)
+
+    if audio_np.ndim == 0:
+        raise TTSError("Audio tham chiếu rỗng hoặc không hợp lệ.")
+
+    if audio_np.ndim > 1:
+        audio_np = np.mean(audio_np, axis=-1 if audio_np.shape[-1] <= 8 else 0)
+
+    audio_np = np.asarray(audio_np, dtype=np.float32).reshape(-1)
+    if audio_np.size == 0:
+        raise TTSError("Audio tham chiếu không chứa sample hợp lệ.")
+
+    peak = float(np.max(np.abs(audio_np))) if audio_np.size else 0.0
+    if peak <= 1e-6:
+        raise TTSError("Audio tham chiếu gần như im lặng. Hãy dùng file có tiếng nói rõ hơn.")
+
+    return audio_np, int(sr)
+
+
 def _estimate_activity_ratio(audio_np: np.ndarray, sample_rate: int) -> float:
     if audio_np.size == 0 or sample_rate <= 0:
         return 0.0
@@ -579,6 +809,16 @@ class EngineCard:
 
 
 @dataclass(slots=True)
+class PresetVoice:
+    id: str
+    name: str
+    avatar: str
+    style: str
+    audio_filename: str
+    reference_text: str
+
+
+@dataclass(slots=True)
 class SynthesisResult:
     engine_id: str
     engine_label: str
@@ -603,11 +843,17 @@ class TTSStudioService:
         self.reference_dir = self.runtime_dir / "references"
         self.output_dir = self.runtime_dir / "generated"
         self.model_dir = self.root / "models"
+        self.static_dir = self.root / "webapp" / "static"
+        self.voice_preset_dir = self.static_dir / "voice_presets"
+        self.gwen_preset_config_path = self.root / "webapp" / "data" / "gwen_preset_voices.json"
         self.reference_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
+        self.enabled_engines = _parse_enabled_engines(os.getenv("TTS_ENABLED_ENGINES", ""))
         self.default_engine = _normalize_engine_id(os.getenv("TTS_DEFAULT_ENGINE", "gwen"))
+        if self.default_engine not in self.enabled_engines:
+            self.default_engine = self.enabled_engines[0]
         self.gwen_model_id = os.getenv("GWEN_MODEL_ID", "g-group-ai-lab/gwen-tts-0.6B").strip() or "g-group-ai-lab/gwen-tts-0.6B"
         self.gwen_model_choices = os.getenv("GWEN_MODEL_CHOICES", "").strip()
         self.gwen_dtype = (os.getenv("GWEN_DTYPE", "bfloat16") or "bfloat16").strip().lower() or "bfloat16"
@@ -629,6 +875,7 @@ class TTSStudioService:
         self._gwen_import_probe: tuple[bool, str | None] | None = None
         self._f5_import_probe: tuple[bool, str | None] | None = None
         self._vieneu_import_probe: tuple[bool, str | None] | None = None
+        self._gwen_preset_voices_cache: list[PresetVoice] | None = None
 
     def _display_path(self, path: Path) -> str:
         try:
@@ -643,6 +890,67 @@ class TTSStudioService:
     @staticmethod
     def _make_f5_model_key(model_name: str) -> str:
         return f"name::{model_name.strip()}"
+
+    def _load_gwen_preset_voices(self) -> list[PresetVoice]:
+        if self._gwen_preset_voices_cache is not None:
+            return self._gwen_preset_voices_cache
+
+        if not self.gwen_preset_config_path.exists():
+            self._gwen_preset_voices_cache = []
+            return self._gwen_preset_voices_cache
+
+        try:
+            raw_items = json.loads(self.gwen_preset_config_path.read_text(encoding="utf-8"))
+        except Exception:
+            self._gwen_preset_voices_cache = []
+            return self._gwen_preset_voices_cache
+
+        voices: list[PresetVoice] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            voice_id = str(item.get("id", "")).strip()
+            if not voice_id:
+                continue
+            voices.append(
+                PresetVoice(
+                    id=voice_id,
+                    name=str(item.get("name", voice_id)).strip() or voice_id,
+                    avatar=str(item.get("avatar", voice_id[:2].upper())).strip() or voice_id[:2].upper(),
+                    style=str(item.get("style", "Preset")).strip() or "Preset",
+                    audio_filename=str(item.get("audio_filename", f"{voice_id}.wav")).strip() or f"{voice_id}.wav",
+                    reference_text=str(item.get("reference_text", "")).strip(),
+                )
+            )
+
+        self._gwen_preset_voices_cache = voices
+        return self._gwen_preset_voices_cache
+
+    def get_preset_voices(self, engine_id: str) -> list[PresetVoice]:
+        engine = _normalize_engine_id(engine_id)
+        if engine != "gwen":
+            return []
+        return self._load_gwen_preset_voices()
+
+    def get_preset_voice(self, engine_id: str, preset_voice_id: str) -> PresetVoice:
+        engine = _normalize_engine_id(engine_id)
+        if engine != "gwen":
+            raise TTSError("Preset voice hiện chỉ hỗ trợ cho Gwen-TTS.")
+
+        normalized_id = (preset_voice_id or "").strip().lower()
+        for voice in self._load_gwen_preset_voices():
+            if voice.id == normalized_id:
+                return voice
+        raise TTSError(f"Không tìm thấy preset voice '{preset_voice_id}'.")
+
+    def get_preset_voice_reference(self, engine_id: str, preset_voice_id: str) -> tuple[PresetVoice, Path]:
+        voice = self.get_preset_voice(engine_id, preset_voice_id)
+        audio_path = self.voice_preset_dir / voice.audio_filename
+        if not audio_path.exists():
+            raise TTSError(
+                f"Không tìm thấy file audio của preset voice '{voice.name}' tại '{self._display_path(audio_path)}'."
+            )
+        return voice, audio_path
 
     def _probe_gwen_import(self) -> tuple[bool, str | None]:
         if self._gwen_import_probe is not None:
@@ -947,11 +1255,12 @@ class TTSStudioService:
         }
 
     def get_engine_cards(self) -> list[EngineCard]:
-        return [
-            self._gwen_card(),
-            self._vieneu_card(),
-            self._f5_card(),
-        ]
+        cards_by_id = {
+            "gwen": self._gwen_card(),
+            "vieneu": self._vieneu_card(),
+            "f5": self._f5_card(),
+        }
+        return [cards_by_id[engine_id] for engine_id in self.enabled_engines]
 
     def get_engine_card(self, engine_id: str) -> EngineCard:
         engine = _normalize_engine_id(engine_id)
@@ -972,6 +1281,8 @@ class TTSStudioService:
         seed: int | None = None,
         model_key: str = "default",
         custom_model: str = "",
+        gwen_generation_config: dict[str, Any] | None = None,
+        pronunciation_overrides: list[tuple[str, str]] | None = None,
     ) -> SynthesisResult:
         text = re.sub(r"\s+", " ", (text or "").strip())
         reference_text = re.sub(r"\s+", " ", (reference_text or "").strip())
@@ -1010,6 +1321,8 @@ class TTSStudioService:
                 model_spec=model_spec,
                 output_path=output_path,
                 speed=speed,
+                gwen_generation_config=gwen_generation_config,
+                pronunciation_overrides=pronunciation_overrides,
             )
         if engine.id == "f5":
             return self._synthesize_with_f5(
@@ -1061,24 +1374,34 @@ class TTSStudioService:
         return prepared_path, duration_seconds, prep_stats
 
     def _prepare_reference_audio_for_gwen(self, reference_audio: Path) -> tuple[Path, float, dict[str, float | bool]]:
-        target_sr = 24000
-        audio_np, sr = _load_audio_mono_float(reference_audio, target_sr=target_sr)
-        audio_np, prep_stats = _trim_reference_silence(audio_np, sr)
-        duration_seconds = float(len(audio_np) / sr)
-        activity_after_trim = _estimate_activity_ratio(audio_np, sr)
+        raw_audio_np, raw_sr = _inspect_audio_mono_float(reference_audio)
+        duration_seconds = float(len(raw_audio_np) / raw_sr)
+        activity_ratio = _estimate_activity_ratio(raw_audio_np, raw_sr)
+        prep_stats: dict[str, float | bool] = {
+            "trimmed": False,
+            "trimmed_seconds": 0.0,
+            "original_duration_seconds": duration_seconds,
+            "activity_ratio": activity_ratio,
+            "activity_ratio_after_trim": activity_ratio,
+        }
         if duration_seconds < 2.0:
             raise TTSError("Audio tham chiếu quá ngắn cho Gwen-TTS. Hãy dùng đoạn nói rõ dài tối thiểu khoảng 2 giây, tốt nhất 3-10 giây.")
         if duration_seconds > 18.0:
             raise TTSError("Audio tham chiếu quá dài cho Gwen-TTS. Hãy cắt còn khoảng 3-10 giây để clone giọng ổn định hơn.")
-        if activity_after_trim < 0.12:
+        if activity_ratio < 0.08:
             raise TTSError(
                 "Audio tham chiếu có quá nhiều khoảng lặng cho Gwen-TTS. "
                 "Hãy cắt còn đoạn nói liên tục, rõ tiếng hơn."
             )
 
+        if reference_audio.suffix.lower() == ".wav":
+            return reference_audio, duration_seconds, prep_stats
+
+        target_sr = 24000
+        audio_np, _ = _load_audio_mono_float(reference_audio, target_sr=target_sr)
         prepared_path = self.reference_dir / f"{reference_audio.stem}-gwen-24k.wav"
         sf.write(prepared_path, audio_np, target_sr, subtype="PCM_16")
-        prep_stats["activity_ratio_after_trim"] = activity_after_trim
+        prep_stats["converted"] = True
         return prepared_path, duration_seconds, prep_stats
 
     def _prepare_reference_audio_for_f5(self, reference_audio: Path) -> tuple[Path, float, list[str]]:
@@ -1505,49 +1828,66 @@ class TTSStudioService:
         model_spec: dict[str, Any],
         output_path: Path,
         speed: float,
+        gwen_generation_config: dict[str, Any] | None = None,
+        pronunciation_overrides: list[tuple[str, str]] | None = None,
     ) -> SynthesisResult:
         gwen = self._load_gwen(model_spec)
         started = time.perf_counter()
         prepared_reference_audio, ref_duration, ref_prep_stats = self._prepare_reference_audio_for_gwen(reference_audio)
-        chunks = _split_text_for_tts(text, max_chars=180)
+        normalized_generation_config = _normalize_gwen_generation_config(
+            {
+                **(gwen_generation_config or {}),
+                "speed": gwen_generation_config.get("speed", speed) if gwen_generation_config else speed,
+            }
+        )
+        generation_kwargs = _build_gwen_generation_kwargs(normalized_generation_config)
+        transformed_text, applied_pronunciations = _apply_pronunciation_overrides(text, pronunciation_overrides)
+        normalized_text = re.sub(r"\s+", " ", transformed_text).strip()
+        if len(normalized_text) <= 320:
+            chunks = [normalized_text]
+        else:
+            chunks = _split_text_for_tts(normalized_text, max_chars=320)
         if not chunks:
             raise TTSError("Văn bản đầu vào rỗng sau khi chuẩn hóa cho Gwen-TTS.")
 
-        generation_kwargs = {
-            "temperature": 0.3,
-            "top_k": 20,
-            "top_p": 0.9,
-            "max_new_tokens": 4096,
-            "repetition_penalty": 2.0,
-            "subtalker_do_sample": True,
-            "subtalker_temperature": 0.1,
-            "subtalker_top_k": 20,
-            "subtalker_top_p": 1.0,
-        }
+        runtime_notes: list[str] = []
 
-        try:
-            if hasattr(gwen, "create_voice_clone_prompt"):
-                voice_clone_prompt = gwen.create_voice_clone_prompt(
-                    ref_audio=str(prepared_reference_audio),
-                    ref_text=reference_text,
-                    x_vector_only_mode=False,
-                )
-                wavs, sample_rate = gwen.generate_voice_clone(
-                    text=chunks if len(chunks) > 1 else chunks[0],
-                    language=["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese",
-                    voice_clone_prompt=voice_clone_prompt,
-                    **generation_kwargs,
-                )
-            else:
-                wavs, sample_rate = gwen.generate_voice_clone(
-                    text=chunks if len(chunks) > 1 else chunks[0],
-                    language=["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese",
-                    ref_audio=str(prepared_reference_audio),
-                    ref_text=reference_text,
-                    **generation_kwargs,
-                )
-        except Exception as exc:  # pragma: no cover - depends on external install
-            raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
+        generate_call_kwargs = dict(generation_kwargs)
+        while True:
+            try:
+                if hasattr(gwen, "create_voice_clone_prompt"):
+                    voice_clone_prompt = gwen.create_voice_clone_prompt(
+                        ref_audio=str(prepared_reference_audio),
+                        ref_text=reference_text,
+                        x_vector_only_mode=False,
+                    )
+                    wavs, sample_rate = gwen.generate_voice_clone(
+                        text=chunks if len(chunks) > 1 else chunks[0],
+                        language=["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese",
+                        voice_clone_prompt=voice_clone_prompt,
+                        **generate_call_kwargs,
+                    )
+                else:
+                    wavs, sample_rate = gwen.generate_voice_clone(
+                        text=chunks if len(chunks) > 1 else chunks[0],
+                        language=["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese",
+                        ref_audio=str(prepared_reference_audio),
+                        ref_text=reference_text,
+                        **generate_call_kwargs,
+                    )
+                break
+            except TypeError as exc:  # pragma: no cover - depends on external install
+                message = str(exc or "")
+                if "unexpected keyword argument" in message and "speed" in message and "speed" in generate_call_kwargs:
+                    generate_call_kwargs.pop("speed", None)
+                    if abs(float(normalized_generation_config["speed"]) - 1.0) > 1e-6:
+                        runtime_notes.append(
+                            "Runtime `qwen-tts` hiện tại không nhận tham số `speed`; Gwen chạy ở tốc độ mặc định của model."
+                        )
+                    continue
+                raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
+            except Exception as exc:  # pragma: no cover - depends on external install
+                raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
 
         raw_waves = wavs if isinstance(wavs, (list, tuple)) else [wavs]
         chunk_waves = [_to_numpy_audio(wave) for wave in raw_waves]
@@ -1561,9 +1901,27 @@ class TTSStudioService:
         elapsed = time.perf_counter() - started
         runtime_attn = getattr(gwen, "_gwen_runtime_attn_implementation", model_spec["attn_implementation"])
         notes = [
-            f"Audio tham chiếu Gwen sau chuẩn hóa dài khoảng {ref_duration:.2f}s.",
+            f"Audio tham chiếu Gwen dài khoảng {ref_duration:.2f}s.",
             "Gwen-TTS dùng transcript tham chiếu để dựng reusable clone prompt rồi tái sử dụng cho toàn bộ chunk.",
         ]
+        if prep_stats.get("converted"):
+            notes.append("Reference audio của Gwen đã được convert sang WAV mono 24kHz vì file gốc không phải WAV.")
+        if applied_pronunciations:
+            pronunciation_preview = "; ".join(
+                f"{source} -> {target}"
+                for source, target, _count in applied_pronunciations[:3]
+            )
+            if len(applied_pronunciations) > 3:
+                pronunciation_preview += "; ..."
+            notes.insert(
+                0,
+                f"Đã áp dụng {len(applied_pronunciations)} quy tắc phát âm trước khi synthesize: {pronunciation_preview}",
+            )
+        elif pronunciation_overrides:
+            notes.insert(0, "Có quy tắc phát âm được khai báo nhưng không khớp với văn bản đầu vào nên không áp dụng.")
+        generation_summary = _summarize_gwen_generation_changes(normalized_generation_config)
+        if generation_summary:
+            notes.insert(0, f"Gwen advanced settings: {generation_summary}.")
         if ref_prep_stats.get("trimmed"):
             notes.append(
                 f"Đã tự cắt khoảng lặng đầu/cuối khỏi audio tham chiếu (~{float(ref_prep_stats['trimmed_seconds']):.2f}s)."
@@ -1572,8 +1930,11 @@ class TTSStudioService:
             notes.append("Audio tham chiếu có mật độ giọng nói hơi thưa; Gwen vẫn chạy được nhưng độ bám giọng có thể giảm.")
         if runtime_attn != model_spec["attn_implementation"]:
             notes.append(f"Gwen-TTS đã fallback attention từ `{model_spec['attn_implementation']}` sang `{runtime_attn}` để load ổn định hơn.")
-        if abs(float(speed) - 1.0) > 1e-6:
-            notes.append("Thanh speed của UI hiện chưa map vào generation config của Gwen-TTS; model đang chạy theo cấu hình chuẩn.")
+        notes.extend(runtime_notes)
+        if re.search(r"\d|[%$@]|[A-Z]{2,}", text) and not applied_pronunciations:
+            notes.append(
+                "Text đầu vào có số, ký hiệu hoặc viết tắt; nếu phát âm chưa đẹp, hãy thêm quy tắc ở mục `Cài Đặt Phát Âm` để bám cách đọc mong muốn."
+            )
         if len(chunks) > 1:
             notes.append(f"Văn bản được tách thành {len(chunks)} chunk để giữ chất lượng clone ổn định hơn.")
         if model_spec["key"] != "default":

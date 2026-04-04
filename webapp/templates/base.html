@@ -6,7 +6,7 @@
     <title>Vietnamese TTS Studio</title>
     <meta
       name="description"
-      content="Studio text to speech tiếng Việt với Gwen-TTS làm model chủ chốt, kèm VieNeu-TTS và F5-TTS."
+      content="Studio text to speech tiếng Việt với Gwen-TTS làm model chủ chốt."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -26,29 +26,19 @@
           <div class="logo-mark">TTS</div>
           <div>
             <b>Vietnamese TTS Studio</b>
-            <span>Gwen chính, VieNeu và F5 làm fallback</span>
+            <span>{{ status_summary.default_engine }} là engine chính của runtime này</span>
           </div>
         </div>
 
         <nav>
-          <a href="{{ url_for('engine_page', engine_id='gwen') }}" class="{{ 'active' if active == 'gwen' }}">
+          {% for card in engine_cards %}
+          <a href="{{ url_for('engine_page', engine_id=card.id) }}" class="{{ 'active' if active == card.id }}">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h10" />
             </svg>
-            Gwen
+            {{ card.label | replace('-TTS', '') }}
           </a>
-          <a href="{{ url_for('engine_page', engine_id='vieneu') }}" class="{{ 'active' if active == 'vieneu' }}">
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-2v13M9 19a3 3 0 11-6 0 3 3 0 016 0zm12-2a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            VieNeu
-          </a>
-          <a href="{{ url_for('engine_page', engine_id='f5') }}" class="{{ 'active' if active == 'f5' }}">
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-            </svg>
-            F5
-          </a>
+          {% endfor %}
           <a href="/voices" class="{{ 'active' if active == 'voices' }}">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-2v13M9 19a3 3 0 11-6 0 3 3 0 016 0zm12-2a3 3 0 11-6 0 3 3 0 016 0z" />

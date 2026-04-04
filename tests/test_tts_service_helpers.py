@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -11,7 +12,10 @@ import soundfile as sf
 
 from webapp.tts_service import (
     EngineCard,
+    GWEN_GENERATION_DEFAULTS,
     TTSError,
+    _apply_pronunciation_overrides,
+    _build_gwen_generation_kwargs,
     _fallback_cleanup_vira_text,
     _format_f5_import_error,
     _format_f5_runtime_error,
@@ -20,6 +24,9 @@ from webapp.tts_service import (
     _format_vieneu_import_error,
     _format_vieneu_runtime_error,
     _map_import_name_to_package,
+    _normalize_gwen_generation_config,
+    _parse_enabled_engines,
+    _parse_pronunciation_overrides,
     _normalize_engine_id,
     _normalize_reference_wave,
     _vieneu_mode_requires_reference_text,
@@ -54,6 +61,64 @@ class TTSServiceHelperTest(unittest.TestCase):
     def test_map_import_name_to_package_handles_hydra(self) -> None:
         self.assertEqual(_map_import_name_to_package("hydra"), "hydra-core")
         self.assertEqual(_map_import_name_to_package("qwen_tts"), "qwen-tts")
+
+    def test_parse_enabled_engines_keeps_known_order_and_unique_values(self) -> None:
+        self.assertEqual(_parse_enabled_engines("gwen,vieneu,f5"), ["gwen", "vieneu", "f5"])
+        self.assertEqual(_parse_enabled_engines("f5 gwen f5 unknown"), ["f5", "gwen"])
+        self.assertEqual(_parse_enabled_engines(""), ["gwen", "vieneu", "f5"])
+
+    def test_normalize_gwen_generation_config_clamps_to_supported_ranges(self) -> None:
+        config = _normalize_gwen_generation_config(
+            {
+                "speed": "9",
+                "temperature": "-1",
+                "top_p": "2",
+                "top_k": "999",
+                "max_new_tokens": "99999",
+                "repetition_penalty": "0",
+                "subtalker_do_sample": False,
+                "subtalker_temperature": "9",
+                "subtalker_top_k": "-5",
+                "subtalker_top_p": "-5",
+                "subtalker_sampling_method": "random",
+            }
+        )
+
+        self.assertEqual(config["speed"], 1.3)
+        self.assertEqual(config["temperature"], 0.1)
+        self.assertEqual(config["top_p"], 1.0)
+        self.assertEqual(config["top_k"], 100)
+        self.assertEqual(config["max_new_tokens"], 8192)
+        self.assertEqual(config["repetition_penalty"], 1.0)
+        self.assertFalse(config["subtalker_do_sample"])
+        self.assertEqual(config["subtalker_temperature"], 1.0)
+        self.assertEqual(config["subtalker_top_k"], 1)
+        self.assertEqual(config["subtalker_top_p"], 0.1)
+        self.assertEqual(config["subtalker_sampling_method"], "gumbel")
+
+    def test_build_gwen_generation_kwargs_excludes_ui_only_sampling_method(self) -> None:
+        kwargs = _build_gwen_generation_kwargs({"subtalker_sampling_method": "gumbel"})
+
+        self.assertNotIn("subtalker_sampling_method", kwargs)
+        self.assertEqual(kwargs["temperature"], GWEN_GENERATION_DEFAULTS["temperature"])
+
+    def test_parse_pronunciation_overrides_skips_incomplete_rows(self) -> None:
+        overrides = _parse_pronunciation_overrides(
+            ["AI", "", "KPI"],
+            ["ây ai", "bo qua", "cây pi ai"],
+        )
+
+        self.assertEqual(overrides, [("AI", "ây ai"), ("KPI", "cây pi ai")])
+
+    def test_apply_pronunciation_overrides_rewrites_matching_terms(self) -> None:
+        updated_text, applied = _apply_pronunciation_overrides(
+            "AI và KPI giúp team AI làm việc nhanh hơn.",
+            [("KPI", "cây pi ai"), ("AI", "ây ai")],
+        )
+
+        self.assertEqual(updated_text, "ây ai và cây pi ai giúp team ây ai làm việc nhanh hơn.")
+        self.assertEqual(applied[0][:2], ("KPI", "cây pi ai"))
+        self.assertEqual(applied[1], ("AI", "ây ai", 2))
 
     def test_format_f5_import_error_mentions_reinstall_hint(self) -> None:
         exc = ModuleNotFoundError("No module named 'cached_path'", name="cached_path")
@@ -157,6 +222,95 @@ class TTSServiceHelperTest(unittest.TestCase):
                 cards = service.get_engine_cards()
 
         self.assertEqual([card.id for card in cards], ["gwen", "vieneu", "f5"])
+
+    def test_enabled_engines_can_hide_fallback_models(self) -> None:
+        with patch.dict(os.environ, {"TTS_ENABLED_ENGINES": "gwen"}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+
+                cards = service.get_engine_cards()
+
+        self.assertEqual([card.id for card in cards], ["gwen"])
+        self.assertEqual(service.default_engine, "gwen")
+        with self.assertRaises(TTSError):
+            service.get_engine_card("f5")
+
+    def test_get_preset_voices_loads_gwen_presets_from_config(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                preset_config = root / "webapp" / "data" / "gwen_preset_voices.json"
+                preset_config.parent.mkdir(parents=True, exist_ok=True)
+                preset_config.write_text(
+                    json.dumps(
+                        [
+                            {
+                                "id": "yen_nhi",
+                                "name": "Yến Nhi",
+                                "avatar": "YN",
+                                "style": "Tự nhiên",
+                                "audio_filename": "yen_nhi.wav",
+                                "reference_text": "xin chao",
+                            }
+                        ],
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                service = TTSStudioService(root)
+
+                voices = service.get_preset_voices("gwen")
+
+        self.assertEqual(len(voices), 1)
+        self.assertEqual(voices[0].id, "yen_nhi")
+        self.assertEqual(voices[0].name, "Yến Nhi")
+        self.assertEqual(voices[0].audio_filename, "yen_nhi.wav")
+
+    def test_get_preset_voice_reference_returns_local_audio_file(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                preset_config = root / "webapp" / "data" / "gwen_preset_voices.json"
+                preset_audio = root / "webapp" / "static" / "voice_presets" / "yen_nhi.wav"
+                preset_config.parent.mkdir(parents=True, exist_ok=True)
+                preset_audio.parent.mkdir(parents=True, exist_ok=True)
+                preset_config.write_text(
+                    json.dumps(
+                        [
+                            {
+                                "id": "yen_nhi",
+                                "name": "Yến Nhi",
+                                "avatar": "YN",
+                                "style": "Tự nhiên",
+                                "audio_filename": "yen_nhi.wav",
+                                "reference_text": "xin chao",
+                            }
+                        ],
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                preset_audio.write_bytes(b"wav")
+                service = TTSStudioService(root)
+
+                voice, audio_path = service.get_preset_voice_reference("gwen", "yen_nhi")
+
+        self.assertEqual(voice.name, "Yến Nhi")
+        self.assertEqual(audio_path, preset_audio)
+
+    def test_prepare_reference_audio_for_gwen_keeps_wav_input_path(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+                reference_audio = Path(tmpdir) / "reference.wav"
+                wave = np.sin(np.linspace(0, 60, 24000 * 4, dtype=np.float32)) * 0.2
+                sf.write(reference_audio, wave, 24000)
+
+                prepared_path, duration_seconds, prep_stats = service._prepare_reference_audio_for_gwen(reference_audio)
+
+        self.assertEqual(prepared_path, reference_audio)
+        self.assertGreater(duration_seconds, 3.9)
+        self.assertFalse(prep_stats["trimmed"])
 
     def test_gwen_card_is_not_ready_without_cuda(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

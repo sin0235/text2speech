@@ -23,7 +23,7 @@ Notebook Colab để clone hoặc pull repo, chạy webapp và mở Cloudflare t
 
 Nếu gặp lỗi kiểu `Codec 'neuphonic/distill-neucodec' requires PyTorch`, `torch >= 2.11.0`, `libtorchaudio.so: undefined symbol: torch_list_push_back`, hoặc thiếu stack cho `qwen-tts`, hãy dùng notebook mới nhất:
 
-- notebook hiện mặc định `TTS_DEFAULT_ENGINE=gwen`, cài `qwen-tts`, và vẫn giữ cả VieNeu-TTS lẫn F5-TTS để mở từng page engine riêng trên UI
+- notebook hiện mặc định `TTS_DEFAULT_ENGINE=gwen`, chỉ cài `qwen-tts`, và export `TTS_ENABLED_ENGINES=gwen` để runtime Colab chỉ hiện engine chủ đạo
 - notebook pin đúng cặp `torch==2.11.0`, `torchaudio==2.11.0` và index CUDA 12.8 (`cu128`) theo hướng upstream của VieNeu
 - notebook cũng dọn residue `torch/torchaudio/neucodec/vieneu` cũ trước khi cài và verify stack trong subprocess sạch để tránh lệch binary ABI
 - notebook export thêm `GWEN_MODEL_ID` và `GWEN_ATTN_IMPLEMENTATION` để backend load Gwen-TTS theo đúng runtime hiện tại
@@ -41,6 +41,21 @@ Gwen-TTS là model mặc định của project. Engine này cần:
 - GPU CUDA để chạy local
 - audio tham chiếu khoảng 3-10 giây, một người nói, ít nhạc nền
 - transcript tham chiếu đúng với câu đang có trong audio mẫu
+
+Web hiện có sẵn 9 preset voice chính thức của Gwen-TTS, lấy từ demo/repo gốc, và thêm 1 preset custom `Khả Hân`:
+
+- `Yến Nhi`
+- `Mỹ Vân`
+- `Ái Vy`
+- `An Nhi`
+- `Diệu Linh`
+- `Khánh Toàn`
+- `Trần Lâm`
+- `NSND Hà Phương`
+- `NSND Kim Cúc`
+- `Khả Hân`
+
+Metadata nằm ở `webapp/data/gwen_preset_voices.json`, audio preview nằm ở `webapp/static/voice_presets`.
 
 Biến môi trường hỗ trợ:
 
