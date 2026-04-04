@@ -337,6 +337,14 @@ def _build_synthesis_submission() -> SynthesisSubmission:
     if preset_voice_id:
         preset_voice, reference_path = studio.get_preset_voice_reference(engine_id, preset_voice_id)
         reference_text = preset_voice.reference_text
+        app.logger.info(
+            "Resolved preset voice for synth: engine=%s preset_voice_id=%s preset_name=%s audio=%s reference_chars=%d",
+            engine_id,
+            preset_voice.id,
+            preset_voice.name,
+            reference_path.name,
+            len(reference_text),
+        )
     else:
         if not upload or not upload.filename:
             raise ValueError("Cần upload audio tham chiếu trước khi sinh giọng.")
@@ -346,6 +354,12 @@ def _build_synthesis_submission() -> SynthesisSubmission:
             raise ValueError("Định dạng audio chưa hỗ trợ. Chỉ nhận .wav, .mp3, .m4a, .flac, .ogg.")
 
         reference_path = studio.save_reference_file(upload.filename, upload.read())
+        app.logger.info(
+            "Resolved custom reference for synth: engine=%s filename=%s reference_chars=%d",
+            engine_id,
+            reference_path.name,
+            len(reference_text),
+        )
 
     if engine_id == "gwen":
         gwen_generation_config = _parse_gwen_generation_form()
