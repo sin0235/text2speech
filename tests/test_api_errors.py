@@ -105,6 +105,80 @@ class ApiErrorHandlingTest(unittest.TestCase):
         self.assertEqual(payload["preset_voice_label"], "Yến Nhi")
         self.assertIn("Đã dùng preset voice Gwen: Yến Nhi.", payload["notes"])
 
+    def test_generate_async_returns_job_id(self) -> None:
+        preset_voice = PresetVoice(
+            id="yen_nhi",
+            name="Yến Nhi",
+            avatar="YN",
+            style="Tự nhiên",
+            audio_filename="yen_nhi.wav",
+            reference_text="xin chao",
+        )
+
+        with patch("webapp.app.studio.get_preset_voice_reference", return_value=(preset_voice, studio.output_dir / "yen_nhi.wav")):
+            with patch("webapp.app.tts_job_manager.enqueue", return_value="job-123") as enqueue_mock:
+                response = self.client.post(
+                    "/api/tts/generate",
+                    data={
+                        "engine": "gwen",
+                        "text": "xin chao",
+                        "preset_voice_id": "yen_nhi",
+                        "async": "1",
+                    },
+                    content_type="multipart/form-data",
+                )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertTrue(response.is_json)
+        payload = response.get_json()
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["queued"], True)
+        self.assertEqual(payload["job_id"], "job-123")
+        enqueue_mock.assert_called_once()
+
+    def test_job_status_returns_progress_payload(self) -> None:
+        with patch(
+            "webapp.app.tts_job_manager.get_snapshot",
+            return_value={
+                "id": "job-123",
+                "status": "running",
+                "message": "dang synthesize",
+            },
+        ):
+            response = self.client.get("/api/tts/jobs/job-123")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["done"], False)
+        self.assertEqual(payload["status"], "running")
+
+    def test_job_status_returns_completed_result(self) -> None:
+        with patch(
+            "webapp.app.tts_job_manager.get_snapshot",
+            return_value={
+                "id": "job-123",
+                "status": "completed",
+                "result": {"ok": True, "download_name": "done.wav"},
+            },
+        ):
+            response = self.client.get("/api/tts/jobs/job-123")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["done"], True)
+        self.assertEqual(payload["result"]["download_name"], "done.wav")
+
+    def test_job_status_returns_404_when_missing(self) -> None:
+        with patch("webapp.app.tts_job_manager.get_snapshot", return_value=None):
+            response = self.client.get("/api/tts/jobs/missing-job")
+
+        self.assertEqual(response.status_code, 404)
+        payload = response.get_json()
+        self.assertEqual(payload["ok"], False)
+        self.assertIn("job", payload["error"].lower())
+
     def test_generate_with_gwen_settings_and_pronunciation_rules_passes_through(self) -> None:
         preset_voice = PresetVoice(
             id="yen_nhi",

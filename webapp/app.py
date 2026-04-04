@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
 import mimetypes
-from dataclasses import asdict
 from pathlib import Path
+from threading import Lock
 from typing import Any
+from urllib.parse import quote
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
@@ -66,6 +71,102 @@ SETUP_STEPS = [
 ]
 
 ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+JOB_RETENTION_SECONDS = 60 * 60
+
+
+@dataclass(slots=True)
+class SynthesisSubmission:
+    engine_id: str
+    text: str
+    reference_path: Path
+    reference_text: str
+    speed: float
+    remove_silence: bool
+    seed: int | None
+    model_key: str
+    custom_model: str
+    gwen_generation_config: dict[str, Any] | None
+    pronunciation_overrides: list[tuple[str, str]]
+    preset_voice: Any | None = None
+
+
+class TTSJobManager:
+    def __init__(self, *, max_workers: int = 1, retention_seconds: int = JOB_RETENTION_SECONDS) -> None:
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="tts-job")
+        self._retention_seconds = retention_seconds
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._lock = Lock()
+
+    def enqueue(self, submission: SynthesisSubmission) -> str:
+        self._purge_expired()
+        now = time.time()
+        job_id = uuid.uuid4().hex
+        with self._lock:
+            self._jobs[job_id] = {
+                "id": job_id,
+                "status": "queued",
+                "created_at": now,
+                "updated_at": now,
+                "message": "Đã nhận yêu cầu. Job đang chờ worker synthesize.",
+                "result": None,
+                "error": None,
+            }
+        self._executor.submit(self._run_job, job_id, submission)
+        return job_id
+
+    def get_snapshot(self, job_id: str) -> dict[str, Any] | None:
+        self._purge_expired()
+        with self._lock:
+            snapshot = self._jobs.get(job_id)
+            if snapshot is None:
+                return None
+            return dict(snapshot)
+
+    def _purge_expired(self) -> None:
+        now = time.time()
+        with self._lock:
+            expired_ids = [
+                job_id
+                for job_id, snapshot in self._jobs.items()
+                if now - float(snapshot.get("updated_at", snapshot.get("created_at", now))) > self._retention_seconds
+            ]
+            for job_id in expired_ids:
+                self._jobs.pop(job_id, None)
+
+    def _update_job(self, job_id: str, **updates: Any) -> None:
+        with self._lock:
+            snapshot = self._jobs.get(job_id)
+            if snapshot is None:
+                return
+            snapshot.update(updates)
+            snapshot["updated_at"] = time.time()
+
+    def _run_job(self, job_id: str, submission: SynthesisSubmission) -> None:
+        self._update_job(
+            job_id,
+            status="running",
+            message="Model đang synthesize trong nền. Request đã được tách khỏi kết nối Cloudflare.",
+        )
+        try:
+            payload = _execute_synthesis_submission(submission)
+        except TTSError as exc:
+            self._update_job(job_id, status="failed", error=str(exc), message=str(exc))
+            return
+        except Exception as exc:  # pragma: no cover
+            error_message = f"Lỗi không mong muốn: {exc}"
+            self._update_job(job_id, status="failed", error=error_message, message=error_message)
+            return
+
+        self._update_job(
+            job_id,
+            status="completed",
+            result=payload,
+            message="Đã synthesize xong audio.",
+            error=None,
+        )
+
+
+tts_job_manager = TTSJobManager()
 
 
 def _parse_gwen_generation_form() -> dict[str, Any]:
@@ -187,6 +288,124 @@ def _is_api_request() -> bool:
     return request.path.startswith("/api/")
 
 
+def _audio_url_for_filename(filename: str) -> str:
+    return f"/outputs/{quote(filename)}"
+
+
+def _build_synthesis_payload(result, *, preset_voice: Any | None = None) -> dict[str, Any]:
+    notes = list(result.notes)
+    if preset_voice is not None:
+        notes.insert(0, f"Đã dùng preset voice Gwen: {preset_voice.name}.")
+
+    return {
+        "ok": True,
+        "engine": result.engine_id,
+        "engine_label": result.engine_label,
+        "model_key": result.model_key,
+        "model_label": result.model_label,
+        "preset_voice_id": preset_voice.id if preset_voice is not None else "",
+        "preset_voice_label": preset_voice.name if preset_voice is not None else "",
+        "audio_url": _audio_url_for_filename(result.output_path.name),
+        "download_name": result.output_path.name,
+        "sample_rate": result.sample_rate,
+        "duration_seconds": round(result.duration_seconds, 2),
+        "inference_seconds": round(result.inference_seconds, 2),
+        "chunk_count": result.chunk_count,
+        "reference_text_used": result.reference_text_used,
+        "seed": result.seed,
+        "notes": notes,
+        "storage_path": str(result.output_path.relative_to(ROOT)),
+    }
+
+
+def _build_synthesis_submission() -> SynthesisSubmission:
+    upload = request.files.get("reference_audio")
+    text = (request.form.get("text") or "").strip()
+    engine_id = (request.form.get("engine") or _pick_default_engine(studio.get_engine_cards())).strip().lower()
+    preset_voice_id = (request.form.get("preset_voice_id") or "").strip().lower()
+    model_key = (request.form.get("model_key") or "default").strip() or "default"
+    custom_model = (request.form.get("custom_model") or "").strip()
+    reference_text = (request.form.get("reference_text") or "").strip()
+    remove_silence = (request.form.get("remove_silence") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    speed_raw = (request.form.get("speed") or "1.0").strip()
+    seed_raw = (request.form.get("seed") or "").strip()
+    gwen_generation_config = None
+    pronunciation_overrides: list[tuple[str, str]] = []
+
+    preset_voice = None
+    if preset_voice_id:
+        preset_voice, reference_path = studio.get_preset_voice_reference(engine_id, preset_voice_id)
+        reference_text = preset_voice.reference_text
+    else:
+        if not upload or not upload.filename:
+            raise ValueError("Cần upload audio tham chiếu trước khi sinh giọng.")
+
+        extension = Path(upload.filename).suffix.lower()
+        if extension not in ALLOWED_AUDIO_EXTENSIONS:
+            raise ValueError("Định dạng audio chưa hỗ trợ. Chỉ nhận .wav, .mp3, .m4a, .flac, .ogg.")
+
+        reference_path = studio.save_reference_file(upload.filename, upload.read())
+
+    if engine_id == "gwen":
+        gwen_generation_config = _parse_gwen_generation_form()
+        pronunciation_overrides = _parse_pronunciation_form()
+        speed = float(gwen_generation_config["speed"])
+    else:
+        try:
+            speed = min(max(float(speed_raw), 0.7), 1.3)
+        except ValueError as exc:
+            raise ValueError("Speed phải là số hợp lệ trong khoảng 0.7 - 1.3.") from exc
+
+    seed = None
+    if seed_raw:
+        try:
+            seed = int(seed_raw)
+        except ValueError as exc:
+            raise ValueError("Seed phải là số nguyên nếu được nhập.") from exc
+
+    return SynthesisSubmission(
+        engine_id=engine_id,
+        text=text,
+        reference_path=reference_path,
+        reference_text=reference_text,
+        speed=speed,
+        remove_silence=remove_silence,
+        seed=seed,
+        model_key=model_key,
+        custom_model=custom_model,
+        gwen_generation_config=gwen_generation_config,
+        pronunciation_overrides=pronunciation_overrides,
+        preset_voice=preset_voice,
+    )
+
+
+def _execute_synthesis_submission(submission: SynthesisSubmission) -> dict[str, Any]:
+    result = studio.synthesize(
+        engine_id=submission.engine_id,
+        text=submission.text,
+        reference_audio=submission.reference_path,
+        reference_text=submission.reference_text,
+        speed=submission.speed,
+        remove_silence=submission.remove_silence,
+        seed=submission.seed,
+        model_key=submission.model_key,
+        custom_model=submission.custom_model,
+        gwen_generation_config=submission.gwen_generation_config,
+        pronunciation_overrides=submission.pronunciation_overrides,
+    )
+    return _build_synthesis_payload(result, preset_voice=submission.preset_voice)
+
+
+def _should_use_async_generation() -> bool:
+    async_raw = (request.form.get("async") or "").strip().lower()
+    if async_raw in {"1", "true", "yes", "on"}:
+        return True
+    if async_raw in {"0", "false", "no", "off"}:
+        return False
+    return bool(request.headers.get("CF-Connecting-IP") or request.headers.get("CF-Ray"))
+
+
 @app.errorhandler(RequestEntityTooLarge)
 def handle_request_entity_too_large(exc: RequestEntityTooLarge):
     if not _is_api_request():
@@ -257,104 +476,79 @@ def api_tts_status():
 
 @app.route("/api/tts/generate", methods=["POST"])
 def api_tts_generate():
-    upload = request.files.get("reference_audio")
-    text = (request.form.get("text") or "").strip()
-    engine_id = (request.form.get("engine") or _pick_default_engine(studio.get_engine_cards())).strip().lower()
-    preset_voice_id = (request.form.get("preset_voice_id") or "").strip().lower()
-    model_key = (request.form.get("model_key") or "default").strip() or "default"
-    custom_model = (request.form.get("custom_model") or "").strip()
-    reference_text = (request.form.get("reference_text") or "").strip()
-    remove_silence = (request.form.get("remove_silence") or "").strip().lower() in {"1", "true", "yes", "on"}
-
-    speed_raw = (request.form.get("speed") or "1.0").strip()
-    seed_raw = (request.form.get("seed") or "").strip()
-    gwen_generation_config = None
-    pronunciation_overrides: list[tuple[str, str]] = []
-
-    preset_voice = None
-    if preset_voice_id:
-        try:
-            preset_voice, reference_path = studio.get_preset_voice_reference(engine_id, preset_voice_id)
-        except TTSError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        reference_text = preset_voice.reference_text
-    else:
-        if not upload or not upload.filename:
-            return jsonify({"ok": False, "error": "Cần upload audio tham chiếu trước khi sinh giọng."}), 400
-
-        extension = Path(upload.filename).suffix.lower()
-        if extension not in ALLOWED_AUDIO_EXTENSIONS:
-            return jsonify(
-                {
-                    "ok": False,
-                    "error": "Định dạng audio chưa hỗ trợ. Chỉ nhận .wav, .mp3, .m4a, .flac, .ogg.",
-                }
-            ), 400
-
-        reference_path = studio.save_reference_file(upload.filename, upload.read())
-
-    if engine_id == "gwen":
-        try:
-            gwen_generation_config = _parse_gwen_generation_form()
-            pronunciation_overrides = _parse_pronunciation_form()
-        except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        speed = float(gwen_generation_config["speed"])
-    else:
-        try:
-            speed = min(max(float(speed_raw), 0.7), 1.3)
-        except ValueError:
-            return jsonify({"ok": False, "error": "Speed phải là số hợp lệ trong khoảng 0.7 - 1.3."}), 400
-
-    seed = None
-    if seed_raw:
-        try:
-            seed = int(seed_raw)
-        except ValueError:
-            return jsonify({"ok": False, "error": "Seed phải là số nguyên nếu được nhập."}), 400
-
     try:
-        result = studio.synthesize(
-            engine_id=engine_id,
-            text=text,
-            reference_audio=reference_path,
-            reference_text=reference_text,
-            speed=speed,
-            remove_silence=remove_silence,
-            seed=seed,
-            model_key=model_key,
-            custom_model=custom_model,
-            gwen_generation_config=gwen_generation_config,
-            pronunciation_overrides=pronunciation_overrides,
-        )
+        submission = _build_synthesis_submission()
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     except TTSError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 422
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except HTTPException:
+        raise
     except Exception as exc:  # pragma: no cover
         return jsonify({"ok": False, "error": f"Lỗi không mong muốn: {exc}"}), 500
 
-    if preset_voice is not None:
-        result.notes.insert(0, f"Đã dùng preset voice Gwen: {preset_voice.name}.")
+    if _should_use_async_generation():
+        job_id = tts_job_manager.enqueue(submission)
+        return (
+            jsonify(
+                {
+                    "ok": True,
+                    "queued": True,
+                    "job_id": job_id,
+                    "status": "queued",
+                    "message": "Job đã được tách nền để tránh timeout Cloudflare. Hãy poll trạng thái cho tới khi hoàn tất.",
+                }
+            ),
+            202,
+        )
 
-    audio_url = url_for("serve_generated_audio", filename=result.output_path.name)
+    try:
+        payload = _execute_synthesis_submission(submission)
+    except TTSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 422
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        return jsonify({"ok": False, "error": f"Lỗi không mong muốn: {exc}"}), 500
+    return jsonify(payload)
+
+
+@app.route("/api/tts/jobs/<job_id>")
+def api_tts_job_status(job_id: str):
+    snapshot = tts_job_manager.get_snapshot(job_id.strip())
+    if snapshot is None:
+        return jsonify({"ok": False, "error": "Không tìm thấy job generate hoặc job đã hết hạn."}), 404
+
+    status = snapshot["status"]
+    if status in {"queued", "running"}:
+        return jsonify(
+            {
+                "ok": True,
+                "done": False,
+                "job_id": snapshot["id"],
+                "status": status,
+                "message": snapshot["message"],
+            }
+        )
+
+    if status == "completed":
+        return jsonify(
+            {
+                "ok": True,
+                "done": True,
+                "job_id": snapshot["id"],
+                "status": status,
+                "result": snapshot["result"],
+            }
+        )
+
     return jsonify(
         {
-            "ok": True,
-            "engine": result.engine_id,
-            "engine_label": result.engine_label,
-            "model_key": result.model_key,
-            "model_label": result.model_label,
-            "preset_voice_id": preset_voice.id if preset_voice is not None else "",
-            "preset_voice_label": preset_voice.name if preset_voice is not None else "",
-            "audio_url": audio_url,
-            "download_name": result.output_path.name,
-            "sample_rate": result.sample_rate,
-            "duration_seconds": round(result.duration_seconds, 2),
-            "inference_seconds": round(result.inference_seconds, 2),
-            "chunk_count": result.chunk_count,
-            "reference_text_used": result.reference_text_used,
-            "seed": result.seed,
-            "notes": result.notes,
-            "storage_path": str(result.output_path.relative_to(ROOT)),
+            "ok": False,
+            "done": True,
+            "job_id": snapshot["id"],
+            "status": status,
+            "error": snapshot["error"] or snapshot["message"],
         }
     )
 

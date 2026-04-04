@@ -505,6 +505,9 @@
   const stopBtn = document.getElementById('stopBtn');
   const historySearchInput = document.getElementById('historySearchInput');
   const historyList = document.getElementById('historyList');
+  const loadingOverlay = document.getElementById('loadingOverlay');
+  const loadingText = loadingOverlay ? loadingOverlay.querySelector('.loading-text') : null;
+  const loadingSubtext = loadingOverlay ? loadingOverlay.querySelector('.loading-subtext') : null;
   let activeRequestController = null;
   let lastSubmissionText = '';
   let gwenVoiceMode = ENGINE_ID === 'gwen' && VOICE_PRESETS.length ? 'preset' : 'custom';
@@ -863,6 +866,75 @@
     };
   }
 
+  function setLoadingState(title, subtitle) {
+    if (!loadingOverlay) {
+      return;
+    }
+    if (loadingText && title) {
+      loadingText.textContent = title;
+    }
+    if (loadingSubtext && subtitle) {
+      loadingSubtext.textContent = subtitle;
+    }
+  }
+
+  function delayWithAbort(ms, signal) {
+    return new Promise((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        resolve();
+      }, ms);
+
+      function onAbort() {
+        cleanup();
+        reject(new DOMException('Aborted', 'AbortError'));
+      }
+
+      function cleanup() {
+        window.clearTimeout(timeoutId);
+        if (signal) {
+          signal.removeEventListener('abort', onAbort);
+        }
+      }
+
+      if (signal) {
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    });
+  }
+
+  async function pollGenerationJob(jobId, signal) {
+    const safeJobId = encodeURIComponent(jobId);
+
+    while (true) {
+      const response = await fetch(`/api/tts/jobs/${safeJobId}`, {
+        method: 'GET',
+        cache: 'no-store',
+        signal,
+      });
+      const payload = await parseApiResponse(response);
+      if (!response.ok && response.status !== 200) {
+        throw new Error(payload.error || `Không lấy được trạng thái job (HTTP ${response.status}).`);
+      }
+      if (payload.done) {
+        if (!payload.ok) {
+          throw new Error(payload.error || 'Job synthesize thất bại.');
+        }
+        return payload.result;
+      }
+
+      setLoadingState(
+        payload.status === 'queued' ? 'Đang xếp hàng synthesize' : 'Đang sinh giọng nói',
+        payload.message || 'Request đã được tách nền để tránh timeout Cloudflare.',
+      );
+      await delayWithAbort(1500, signal);
+    }
+  }
+
   function setStudioBusyState(isBusy) {
     const generateBtn = document.getElementById('generateBtn');
     if (generateBtn) {
@@ -1208,16 +1280,18 @@
       return;
     }
 
-    const overlay = document.getElementById('loadingOverlay');
     lastSubmissionText = textInput.value.trim();
     activeRequestController = new AbortController();
-    overlay.style.display = 'flex';
+    setLoadingState('Đang gửi yêu cầu', 'Web sẽ chuyển sang chế độ job nền để tránh timeout qua tunnel/Cloudflare.');
+    loadingOverlay.style.display = 'flex';
     setStudioBusyState(true);
 
     try {
+      const formData = new FormData(this);
+      formData.set('async', '1');
       const response = await fetch('/api/tts/generate', {
         method: 'POST',
-        body: new FormData(this),
+        body: formData,
         signal: activeRequestController.signal,
       });
       const payload = await parseApiResponse(response);
@@ -1225,20 +1299,33 @@
         alert(payload.error || `Không thể sinh audio (HTTP ${response.status}).`);
         return;
       }
+
+      if (response.status === 202 || payload.queued) {
+        document.getElementById('resultState').classList.remove('hidden');
+        document.getElementById('resultCard').classList.add('hidden');
+        document.getElementById('resultState').textContent = 'Job đã được đưa vào nền. Đang đợi model synthesize xong...';
+        const completedPayload = await pollGenerationJob(payload.job_id, activeRequestController.signal);
+        renderResult(completedPayload);
+        renderHistory(completedPayload);
+        return;
+      }
+
       renderResult(payload);
       renderHistory(payload);
     } catch (error) {
       if (error && error.name === 'AbortError') {
         document.getElementById('resultState').classList.remove('hidden');
         document.getElementById('resultCard').classList.add('hidden');
-        document.getElementById('resultState').textContent = 'Đã dừng lượt generate hiện tại.';
+        document.getElementById('resultState').textContent = 'Đã dừng theo dõi lượt generate hiện tại. Nếu job đã chạy trên server thì audio vẫn có thể hoàn tất trong nền.';
         return;
       }
-      alert('Không thể kết nối tới API TTS. Hãy kiểm tra server Flask hoặc tunnel hiện tại.');
+      alert(error && error.message ? error.message : 'Không thể kết nối tới API TTS. Hãy kiểm tra server Flask hoặc tunnel hiện tại.');
       console.error(error);
     } finally {
       activeRequestController = null;
-      overlay.style.display = 'none';
+      if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
+      }
       setStudioBusyState(false);
     }
   });
