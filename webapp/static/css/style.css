@@ -144,6 +144,10 @@ main {
   margin-bottom: 24px;
 }
 
+.compact-page-header {
+  margin-bottom: 14px;
+}
+
 .page-header h1 {
   font-size: 30px;
   line-height: 1.15;
@@ -260,8 +264,7 @@ main {
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
-.mini-engine-card:hover,
-.card:hover {
+.mini-engine-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 22px 44px rgba(37, 99, 235, 0.09);
 }
@@ -316,6 +319,29 @@ main {
   margin-bottom: 20px;
 }
 
+.compact-summary-card {
+  padding: 16px 20px;
+}
+
+.summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.summary-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(248, 251, 255, 0.96);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .studio-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
@@ -363,7 +389,7 @@ main {
 }
 
 .large-textarea {
-  min-height: 220px;
+  min-height: 180px;
   resize: vertical;
   font-size: 15px;
   line-height: 1.7;
@@ -386,6 +412,12 @@ main {
 
 .field-meta.single-line {
   justify-content: flex-start;
+}
+
+.field-meta-stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .engine-picker {
@@ -451,7 +483,7 @@ main {
   align-items: center;
   justify-content: center;
   text-align: center;
-  min-height: 220px;
+  min-height: 180px;
   padding: 22px;
   border: 1.8px dashed rgba(37, 99, 235, 0.32);
   border-radius: 24px;
@@ -598,6 +630,11 @@ main {
   border-radius: 20px;
   background: linear-gradient(180deg, rgba(239, 246, 255, 0.88), rgba(255, 255, 255, 0.95));
   border: 1px solid var(--border);
+}
+
+.subtle-tip-box {
+  margin-top: 14px;
+  background: rgba(248, 251, 255, 0.96);
 }
 
 .tips-title,

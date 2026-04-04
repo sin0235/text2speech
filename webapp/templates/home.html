@@ -1,47 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 
-<section class="hero-card">
-  <div class="hero-copy">
-    <div class="eyebrow">Blue-White Voice Cloning Workspace</div>
-    <h1>Text to speech tiếng Việt với <span>Gwen-TTS</span>, <span>VieNeu-TTS</span> và <span>F5-TTS</span></h1>
-    <p class="subtitle">
-      Chuyển đoạn script tiếng Việt thành audio ngay trong giao diện hiện tại,
-      giữ nguyên font, theme, motion và màu chủ đạo xanh trắng, nhưng đổi flow
-      sang một studio TTS tập trung cho voice cloning, với Gwen-TTS là luồng mặc định mới.
-    </p>
+<div class="page-header compact-page-header">
+  <h1>Vietnamese TTS Studio</h1>
+  <p class="subtitle">Nhập văn bản, chọn engine, thêm audio mẫu rồi generate.</p>
+</div>
 
-    <div class="hero-inline-stats">
-      <div class="hero-stat">
-        <div class="hero-stat-label">Engine</div>
-        <div class="hero-stat-value">{{ status_summary.engine_count }}</div>
-      </div>
-      <div class="hero-stat">
-        <div class="hero-stat-label">Sẵn sàng</div>
-        <div class="hero-stat-value">{{ status_summary.ready_count }}</div>
-      </div>
-      <div class="hero-stat">
-        <div class="hero-stat-label">Thiết bị</div>
-        <div class="hero-stat-value">{{ status_summary.device_label }}</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="hero-stack">
-    {% for card in engine_cards %}
-    <div class="mini-engine-card {% if card.ready %}is-ready{% else %}is-offline{% endif %}">
-      <div class="mini-engine-header">
-        <div>
-          <div class="mini-engine-name">{{ card.label }}</div>
-          <div class="mini-engine-meta">{{ card.output_quality }}</div>
-        </div>
-        <span class="status-dot {% if card.ready %}ready{% else %}offline{% endif %}">
-          {% if card.ready %}Ready{% else %}Offline{% endif %}
-        </span>
-      </div>
-      <p>{{ card.headline }}</p>
-    </div>
-    {% endfor %}
+<section class="card compact-summary-card">
+  <div class="summary-strip">
+    <span class="status-pill">{{ status_summary.default_engine }} mặc định</span>
+    <span class="summary-item">{{ status_summary.ready_count }}/{{ status_summary.engine_count }} engine sẵn sàng</span>
+    <span class="summary-item">{{ status_summary.device_label }}</span>
   </div>
 </section>
 
@@ -94,7 +63,7 @@
                   {% if card.ready %}Ready{% else %}Unavailable{% endif %}
                 </span>
               </span>
-              <span class="engine-radio-desc">{{ card.recommended_for }}</span>
+              <span class="engine-radio-desc">{{ card.summary }}</span>
               <span class="engine-radio-note">{{ card.reference_hint }}</span>
             </span>
           </label>
@@ -136,12 +105,12 @@
         ></textarea>
         <div class="field-meta">
           <span id="referenceHintPrimary">Bắt buộc với Gwen-TTS</span>
-          <span id="referenceHintSecondary">Nhập nguyên câu có trong audio mẫu để Gwen dựng clone prompt và bám giọng chính xác hơn</span>
+          <span id="referenceHintSecondary">Nhập đúng câu trong audio mẫu</span>
         </div>
       </div>
 
       <div class="examples">
-        <div class="examples-title">Mẫu nhanh</div>
+        <div class="examples-title">Điền nhanh</div>
         <div class="example-chips">
           {% for example in examples %}
           <button type="button" class="chip" onclick='fillExample({{ example|tojson }})'>
@@ -162,10 +131,15 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
           </div>
-          <div class="upload-title">Kéo thả hoặc bấm để chọn file</div>
-          <div class="upload-subtitle">WAV, MP3, FLAC, M4A, OGG. Tối ưu nhất: 3-12 giây. Tối đa {{ max_upload_mb }} MB.</div>
+          <div class="upload-title">Chọn file audio mẫu</div>
+          <div class="upload-subtitle">WAV, MP3, FLAC, M4A, OGG. Tối đa {{ max_upload_mb }} MB.</div>
           <div class="upload-file" id="uploadFileLabel">Chưa có file nào được chọn</div>
         </label>
+        <div class="field-meta field-meta-stack">
+          {% for tip in reference_tips %}
+          <span>{{ tip }}</span>
+          {% endfor %}
+        </div>
       </div>
 
       <div class="controls-grid">
@@ -182,7 +156,7 @@
         <div class="control-card">
           <label for="seedInput">Seed</label>
           <input id="seedInput" name="seed" class="form-control compact-input" type="number" min="0" placeholder="Tùy chọn" />
-          <div class="field-meta single-line">Hiện hữu ích chủ yếu với F5-TTS; Gwen và VieNeu chưa dùng seed của UI.</div>
+          <div class="field-meta single-line">Chủ yếu dùng với F5.</div>
         </div>
       </div>
 
@@ -199,13 +173,6 @@
         </label>
       </div>
 
-      <div class="tips-card">
-        <div class="tips-title">Checklist audio tham chiếu</div>
-        {% for tip in reference_tips %}
-        <div class="tip-line">{{ tip }}</div>
-        {% endfor %}
-      </div>
-
       <div class="form-actions">
         <button class="btn" type="submit" id="generateBtn" {% if status_summary.ready_count == 0 %}disabled{% endif %}>
           <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -218,7 +185,7 @@
 
       {% if status_summary.ready_count == 0 %}
       <div class="empty-state small">
-        Chưa có engine nào khả dụng trong môi trường hiện tại. Cài Gwen-TTS trước khi generate.
+        Chưa có engine nào sẵn sàng.
       </div>
       {% endif %}
     </div>
@@ -230,7 +197,7 @@
   <div class="loading-content">
     <div class="loading-spinner"></div>
     <div class="loading-text">Đang sinh giọng nói</div>
-    <div class="loading-subtext">Model đang encode giọng mẫu và render audio đầu ra.</div>
+    <div class="loading-subtext">Đang xử lý audio mẫu và render kết quả.</div>
   </div>
 </div>
 
@@ -243,7 +210,7 @@
       Kết quả mới nhất
     </div>
     <div id="resultState" class="empty-state">
-      Chưa có audio nào được sinh. Hãy nhập script, upload một câu tham chiếu và thêm transcript nếu dùng Gwen-TTS hoặc VieNeu Standard.
+      Chưa có audio nào được sinh.
     </div>
     <div id="resultCard" class="result-card hidden">
       <div class="result-topline">
@@ -279,7 +246,7 @@
     </div>
     <div id="historyList" class="history-list">
       <div class="empty-state small">
-        Các lượt generate mới sẽ xuất hiện ở đây để bạn nghe lại nhanh.
+        Các lượt generate mới sẽ hiện ở đây.
       </div>
     </div>
   </div>

@@ -3,28 +3,25 @@
 
 <div class="page-header">
   <h1>Kiến trúc project</h1>
-  <p class="subtitle">
-    Project đã được chuyển từ demo phân tích văn bản cũ sang một Flask TTS
-    studio mới, lấy Gwen-TTS làm engine chính và giữ VieNeu-TTS, F5-TTS như các nhánh phụ.
-  </p>
+  <p class="subtitle">Tóm tắt nhanh cấu trúc app, API và biến môi trường chính.</p>
 </div>
 
 <div class="info-grid architecture-grid">
   <div class="info-item architecture-item">
     <div class="info-label">Frontend</div>
-    <div class="info-val">Jinja + JS thuần, giữ font Plus Jakarta Sans / Inter, màu xanh trắng và hiệu ứng hover / loading.</div>
+    <div class="info-val">Jinja + JS thuần cho form, trạng thái và kết quả.</div>
   </div>
   <div class="info-item architecture-item">
     <div class="info-label">Backend</div>
-    <div class="info-val">Flask route cho trang studio, API sinh audio, route phát output và route kiểm tra trạng thái engine.</div>
+    <div class="info-val">Flask route cho UI, API generate và route phát file WAV.</div>
   </div>
   <div class="info-item architecture-item">
     <div class="info-label">Service Layer</div>
-    <div class="info-val">`TTSStudioService` load engine theo nhu cầu, validate input, lưu file tham chiếu và ghi WAV đầu ra.</div>
+    <div class="info-val">`TTSStudioService` load engine, validate input và ghi output.</div>
   </div>
   <div class="info-item architecture-item">
     <div class="info-label">Storage</div>
-    <div class="info-val">File runtime nằm trong `webapp/runtime/references` và `webapp/runtime/generated` để dễ nghe lại hoặc tải về.</div>
+    <div class="info-val">Runtime file nằm trong `references` và `generated`.</div>
   </div>
 </div>
 
@@ -33,7 +30,7 @@
     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
     </svg>
-    Setup Flow
+    Setup
   </div>
 
   <div class="workflow-grid">
@@ -54,13 +51,13 @@
     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9h8M8 13h6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
     </svg>
-    API hiện có
+    API
   </div>
 
   <div class="stack-list mono-list">
-    <div class="stack-row"><code>GET /api/tts/status</code> trả trạng thái sẵn sàng của Gwen-TTS, VieNeu-TTS và F5-TTS.</div>
-    <div class="stack-row"><code>POST /api/tts/generate</code> nhận <code>multipart/form-data</code> gồm text, engine, model_key, custom_model, reference_audio, reference_text, speed, seed.</div>
-    <div class="stack-row"><code>GET /outputs/&lt;filename&gt;</code> phát trực tiếp file WAV đã sinh.</div>
+    <div class="stack-row"><code>GET /api/tts/status</code> trả trạng thái engine.</div>
+    <div class="stack-row"><code>POST /api/tts/generate</code> nhận form generate.</div>
+    <div class="stack-row"><code>GET /outputs/&lt;filename&gt;</code> phát file WAV đã sinh.</div>
   </div>
 </div>
 
@@ -69,19 +66,15 @@
     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-3.314 0-6 2.239-6 5s2.686 5 6 5 6-2.239 6-5-2.686-5-6-5zm0 0V4m0 14v2" />
     </svg>
-    Biến môi trường quan trọng
+    Biến môi trường
   </div>
 
   <div class="engine-metadata">
-    <div class="metadata-line"><span>TTS_DEFAULT_ENGINE</span><strong>Engine mặc định: `gwen`, `vieneu` hoặc `f5`</strong></div>
-    <div class="metadata-line"><span>GWEN_MODEL_ID</span><strong>Model HF mặc định của Gwen-TTS, hiện là `g-group-ai-lab/gwen-tts-0.6B`</strong></div>
-    <div class="metadata-line"><span>GWEN_ATTN_IMPLEMENTATION</span><strong>Attention backend cho Gwen-TTS, mặc định `flash_attention_2` và fallback sang `sdpa` nếu cần</strong></div>
-    <div class="metadata-line"><span>VIENEU_MODE</span><strong>Mode mặc định của VieNeu-TTS, hiện ưu tiên `standard`</strong></div>
-    <div class="metadata-line"><span>VIENEU_MODE_CHOICES</span><strong>Danh sách preset mode VieNeu hiển thị thêm trên UI</strong></div>
-    <div class="metadata-line"><span>F5_MODEL_NAME</span><strong>Tên model F5-TTS cần load</strong></div>
-    <div class="metadata-line"><span>F5_MODEL_CHOICES</span><strong>Danh sách preset model F5 hiển thị thêm trên UI</strong></div>
-    <div class="metadata-line"><span>F5_CKPT_FILE</span><strong>Checkpoint tùy chỉnh cho F5-TTS</strong></div>
-    <div class="metadata-line"><span>F5_VOCAB_FILE</span><strong>Vocab file nếu checkpoint yêu cầu</strong></div>
+    <div class="metadata-line"><span>TTS_DEFAULT_ENGINE</span><strong>`gwen`, `vieneu` hoặc `f5`</strong></div>
+    <div class="metadata-line"><span>GWEN_MODEL_ID</span><strong>Model HF mặc định của Gwen</strong></div>
+    <div class="metadata-line"><span>GWEN_ATTN_IMPLEMENTATION</span><strong>`flash_attention_2` hoặc `sdpa`</strong></div>
+    <div class="metadata-line"><span>VIENEU_MODE</span><strong>`standard`, `fast`, `turbo`, `turbo_gpu`</strong></div>
+    <div class="metadata-line"><span>F5_MODEL_NAME</span><strong>Tên model F5 cần load</strong></div>
   </div>
 </div>
 

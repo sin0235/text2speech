@@ -28,23 +28,23 @@ TEXT_EXAMPLES = [
 ]
 
 REFERENCE_TIPS = [
-    "Giữ audio tham chiếu dài khoảng 3 đến 8 giây, một người nói, không nhạc nền.",
-    "Nếu dùng Gwen-TTS hoặc VieNeu Standard, bắt buộc nhập đúng transcript của câu đang có trong audio mẫu.",
-    "Gwen-TTS là engine mặc định mới; F5-TTS và VieNeu-TTS vẫn giữ lại để so sánh hoặc fallback.",
+    "Audio mẫu nên dài 3 đến 8 giây, một người nói, ít nhiễu.",
+    "Gwen-TTS và VieNeu Standard cần transcript đúng với câu trong audio mẫu.",
+    "Nếu lỗi hoặc thiếu GPU, đổi tạm sang VieNeu hoặc F5.",
 ]
 
 SETUP_STEPS = [
     {
-        "title": "Cài Flask UI",
-        "body": "Dùng requirements tối thiểu của webapp để chạy giao diện và API upload / download audio.",
+        "title": "Cài webapp",
+        "body": "Cài dependencies tối thiểu để chạy giao diện và API.",
     },
     {
-        "title": "Bật Gwen-TTS",
-        "body": "Cài `qwen-tts`, để engine Gwen-TTS load lazily từ model `g-group-ai-lab/gwen-tts-0.6B` khi người dùng bấm Generate.",
+        "title": "Bật Gwen",
+        "body": "Cài `qwen-tts`; model sẽ load khi bạn generate.",
     },
     {
-        "title": "Bật Engine phụ",
-        "body": "Nếu cần, cài thêm VieNeu-TTS hoặc F5-TTS để so sánh chất lượng và có phương án fallback.",
+        "title": "Thêm fallback",
+        "body": "Cài VieNeu hoặc F5 nếu cần engine phụ.",
     },
 ]
 
