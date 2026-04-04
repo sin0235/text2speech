@@ -15,6 +15,8 @@ from webapp.tts_service import (
     _fallback_cleanup_vira_text,
     _format_f5_import_error,
     _format_f5_runtime_error,
+    _format_gwen_import_error,
+    _format_gwen_runtime_error,
     _format_vieneu_import_error,
     _format_vieneu_runtime_error,
     _map_import_name_to_package,
@@ -51,6 +53,7 @@ class TTSServiceHelperTest(unittest.TestCase):
 
     def test_map_import_name_to_package_handles_hydra(self) -> None:
         self.assertEqual(_map_import_name_to_package("hydra"), "hydra-core")
+        self.assertEqual(_map_import_name_to_package("qwen_tts"), "qwen-tts")
 
     def test_format_f5_import_error_mentions_reinstall_hint(self) -> None:
         exc = ModuleNotFoundError("No module named 'cached_path'", name="cached_path")
@@ -68,6 +71,14 @@ class TTSServiceHelperTest(unittest.TestCase):
 
         self.assertIn("vieneu", message)
         self.assertIn("llama-cpp-python", message)
+
+    def test_format_gwen_import_error_mentions_package(self) -> None:
+        exc = ModuleNotFoundError("No module named 'flash_attn'", name="flash_attn")
+
+        message = _format_gwen_import_error(exc)
+
+        self.assertIn("qwen-tts", message)
+        self.assertIn("flash-attn", message)
 
     def test_format_vieneu_runtime_error_mentions_torch_reinstall(self) -> None:
         exc = RuntimeError(
@@ -88,7 +99,15 @@ class TTSServiceHelperTest(unittest.TestCase):
         message = _format_f5_runtime_error(exc)
 
         self.assertIn("torchaudio/FFmpeg", message)
-        self.assertIn("VieNeu Standard", message)
+        self.assertIn("Gwen-TTS", message)
+
+    def test_format_gwen_runtime_error_mentions_sdpa_fallback(self) -> None:
+        exc = RuntimeError("flash_attn kernel failed to initialize")
+
+        message = _format_gwen_runtime_error(exc)
+
+        self.assertIn("sdpa", message)
+        self.assertIn("GWEN_ATTN_IMPLEMENTATION", message)
 
     def test_normalize_engine_id_maps_legacy_vira(self) -> None:
         self.assertEqual(_normalize_engine_id("vira"), "vieneu")
@@ -100,12 +119,13 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertFalse(_vieneu_mode_requires_reference_text("turbo"))
         self.assertFalse(_vieneu_mode_requires_reference_text("turbo_gpu"))
 
-    def test_default_vieneu_mode_is_standard(self) -> None:
+    def test_default_engine_is_gwen(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             with tempfile.TemporaryDirectory() as tmpdir:
                 service = TTSStudioService(Path(tmpdir))
 
-        self.assertEqual(service.default_engine, "vieneu")
+        self.assertEqual(service.default_engine, "gwen")
+        self.assertEqual(service.gwen_model_id, "g-group-ai-lab/gwen-tts-0.6B")
         self.assertEqual(service.vieneu_mode, "standard")
 
     def test_offline_f5_is_still_shown_by_default(self) -> None:
@@ -116,7 +136,20 @@ class TTSServiceHelperTest(unittest.TestCase):
 
                 cards = service.get_engine_cards()
 
-        self.assertEqual([card.id for card in cards], ["vieneu", "f5"])
+        self.assertEqual([card.id for card in cards], ["gwen", "vieneu", "f5"])
+
+    def test_gwen_card_is_not_ready_without_cuda(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+                service._probe_gwen_import = lambda: (True, None)
+                service._torch_version_label = lambda: "2.11.0+cu128"
+                service._torch_cuda_available = lambda: False
+
+                card = service.get_engine_card("gwen")
+
+        self.assertFalse(card.ready)
+        self.assertIn("GPU CUDA", card.warning or "")
 
     def test_vieneu_standard_card_is_not_ready_on_old_torch(self) -> None:
         with patch.dict(os.environ, {"VIENEU_MODE": "standard"}, clear=True):

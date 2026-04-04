@@ -21,7 +21,7 @@ MAX_UPLOAD_MB = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
 studio = TTSStudioService(ROOT)
 
 TEXT_EXAMPLES = [
-    "Xin chào, đây là bản demo chuyển văn bản thành giọng nói tiếng Việt bằng VieNeu-TTS Standard.",
+    "Xin chào, đây là bản demo chuyển văn bản thành giọng nói tiếng Việt bằng Gwen-TTS.",
     "Thông báo: lớp học xử lý ngôn ngữ tự nhiên sẽ bắt đầu lúc tám giờ sáng tại phòng A3.",
     "Hôm nay chúng ta sẽ thu voice-over cho landing page với tông giọng rõ, sáng và chuyên nghiệp.",
     "Chúc bạn có một ngày làm việc hiệu quả, nhẹ nhàng và nhiều năng lượng tích cực.",
@@ -29,8 +29,8 @@ TEXT_EXAMPLES = [
 
 REFERENCE_TIPS = [
     "Giữ audio tham chiếu dài khoảng 3 đến 8 giây, một người nói, không nhạc nền.",
-    "Nếu dùng VieNeu Standard, bắt buộc nhập đúng transcript của câu đang có trong audio mẫu.",
-    "F5-TTS chỉ nên dùng khi bạn thật sự muốn thử engine phụ hoặc model khác.",
+    "Nếu dùng Gwen-TTS hoặc VieNeu Standard, bắt buộc nhập đúng transcript của câu đang có trong audio mẫu.",
+    "Gwen-TTS là engine mặc định mới; F5-TTS và VieNeu-TTS vẫn giữ lại để so sánh hoặc fallback.",
 ]
 
 SETUP_STEPS = [
@@ -39,12 +39,12 @@ SETUP_STEPS = [
         "body": "Dùng requirements tối thiểu của webapp để chạy giao diện và API upload / download audio.",
     },
     {
-        "title": "Bật VieNeu Standard",
-        "body": "Cài package `vieneu[gpu]`, để engine VieNeu Standard load lazily khi người dùng bấm Generate.",
+        "title": "Bật Gwen-TTS",
+        "body": "Cài `qwen-tts`, để engine Gwen-TTS load lazily từ model `g-group-ai-lab/gwen-tts-0.6B` khi người dùng bấm Generate.",
     },
     {
-        "title": "Bật F5-TTS",
-        "body": "F5 là engine phụ. Chỉ cài upstream F5-TTS nếu bạn vẫn muốn thử thêm một nhánh voice cloning khác.",
+        "title": "Bật Engine phụ",
+        "body": "Nếu cần, cài thêm VieNeu-TTS hoặc F5-TTS để so sánh chất lượng và có phương án fallback.",
     },
 ]
 
@@ -67,7 +67,7 @@ def _pick_default_engine(engine_cards: list) -> str:
     for card in engine_cards:
         if card.ready:
             return card.id
-    return engine_cards[0].id if engine_cards else "vieneu"
+    return engine_cards[0].id if engine_cards else "gwen"
 
 
 def _is_api_request() -> bool:
@@ -149,7 +149,7 @@ def api_tts_status():
 def api_tts_generate():
     upload = request.files.get("reference_audio")
     text = (request.form.get("text") or "").strip()
-    engine_id = (request.form.get("engine") or studio.default_engine).strip().lower()
+    engine_id = (request.form.get("engine") or _pick_default_engine(studio.get_engine_cards())).strip().lower()
     model_key = (request.form.get("model_key") or "default").strip() or "default"
     custom_model = (request.form.get("custom_model") or "").strip()
     reference_text = (request.form.get("reference_text") or "").strip()

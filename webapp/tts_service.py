@@ -66,12 +66,14 @@ def _map_import_name_to_package(module_name: str) -> str:
     return {
         "hydra": "hydra-core",
         "cached_path": "cached_path",
+        "flash_attn": "flash-attn",
         "llama_cpp": "llama-cpp-python",
         "omegaconf": "omegaconf",
         "onnxruntime": "onnxruntime",
         "pydub": "pydub",
         "perth": "perth",
         "pypinyin": "pypinyin",
+        "qwen_tts": "qwen-tts",
         "rjieba": "rjieba",
         "sea_g2p": "sea-g2p",
         "transformers_stream_generator": "transformers-stream-generator",
@@ -107,8 +109,8 @@ def _format_f5_runtime_error(exc: Exception) -> str:
     ):
         return (
             "Không đọc được codec audio của torchaudio/FFmpeg trong runtime hiện tại. "
-            "Notebook của repo này đã chuyển mặc định sang VieNeu Standard; "
-            "hãy đổi engine sang `VieNeu-TTS` hoặc rerun cell cài dependencies "
+            "Notebook của repo này đã chuyển mặc định sang Gwen-TTS; "
+            "hãy đổi engine sang `Gwen-TTS` hoặc `VieNeu-TTS`, hoặc rerun cell cài dependencies "
             "để đồng bộ torch/torchaudio và ffmpeg trước khi dùng F5."
         )
     return str(exc)
@@ -150,7 +152,37 @@ def _format_vieneu_runtime_error(exc: Exception) -> str:
     return normalized
 
 
-def _normalize_engine_id(value: str, default: str = "vieneu") -> str:
+def _format_gwen_import_error(exc: Exception) -> str:
+    if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None):
+        missing_module = exc.name.strip()
+        package_name = _map_import_name_to_package(missing_module)
+        return (
+            f"Gwen-TTS đã được cài nhưng thiếu dependency `{missing_module}`. "
+            f"Hãy chạy `python -m pip install -U qwen-tts {package_name}` rồi khởi động lại ứng dụng."
+        )
+    return f"Không thể import Gwen-TTS: {exc}"
+
+
+def _format_gwen_runtime_error(exc: Exception) -> str:
+    normalized = re.sub(r"\s+", " ", str(exc or "")).strip()
+    lowered = normalized.lower()
+    if "flash_attn" in lowered or "flash attention" in lowered:
+        return (
+            "Gwen-TTS không khởi tạo được với FlashAttention trong runtime hiện tại. "
+            "App đã có thể fallback sang `sdpa`, nhưng nếu vẫn lỗi hãy cài `flash-attn` "
+            "hoặc đặt `GWEN_ATTN_IMPLEMENTATION=sdpa` rồi khởi động lại."
+        )
+    if "out of memory" in lowered or "cuda error" in lowered:
+        return (
+            "Gwen-TTS bị lỗi GPU/CUDA khi load hoặc sinh audio. "
+            "Hãy kiểm tra VRAM còn trống, giảm tải runtime, hoặc dùng GPU Colab mạnh hơn."
+        )
+    if "cuda" in lowered and "available" in lowered:
+        return "Gwen-TTS trong project này cần GPU CUDA để chạy local."
+    return normalized
+
+
+def _normalize_engine_id(value: str, default: str = "gwen") -> str:
     normalized = (value or "").strip().lower()
     if normalized == "vira":
         return "vieneu"
@@ -539,7 +571,7 @@ class SynthesisResult:
 
 
 class TTSStudioService:
-    """Flask-facing service that orchestrates F5-TTS and VieNeu-TTS engines."""
+    """Flask-facing service that orchestrates Gwen-TTS, VieNeu-TTS, and F5-TTS engines."""
 
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
@@ -551,7 +583,11 @@ class TTSStudioService:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
-        self.default_engine = _normalize_engine_id(os.getenv("TTS_DEFAULT_ENGINE", "vieneu"))
+        self.default_engine = _normalize_engine_id(os.getenv("TTS_DEFAULT_ENGINE", "gwen"))
+        self.gwen_model_id = os.getenv("GWEN_MODEL_ID", "g-group-ai-lab/gwen-tts-0.6B").strip() or "g-group-ai-lab/gwen-tts-0.6B"
+        self.gwen_model_choices = os.getenv("GWEN_MODEL_CHOICES", "").strip()
+        self.gwen_dtype = (os.getenv("GWEN_DTYPE", "bfloat16") or "bfloat16").strip().lower() or "bfloat16"
+        self.gwen_attn_implementation = (os.getenv("GWEN_ATTN_IMPLEMENTATION", "flash_attention_2") or "flash_attention_2").strip() or "flash_attention_2"
         self.vieneu_mode = (os.getenv("VIENEU_MODE", "standard") or "standard").strip().lower() or "standard"
         self.vieneu_mode_choices = os.getenv("VIENEU_MODE_CHOICES", "").strip()
 
@@ -561,10 +597,12 @@ class TTSStudioService:
         self.f5_vocoder_local_path = os.getenv("F5_VOCODER_LOCAL_PATH", "").strip() or None
         self.f5_model_choices = os.getenv("F5_MODEL_CHOICES", "").strip()
         self._locks = {
+            "gwen": Lock(),
             "f5": Lock(),
             "vieneu": Lock(),
         }
         self._loaded_models: dict[str, Any] = {}
+        self._gwen_import_probe: tuple[bool, str | None] | None = None
         self._f5_import_probe: tuple[bool, str | None] | None = None
         self._vieneu_import_probe: tuple[bool, str | None] | None = None
 
@@ -575,8 +613,29 @@ class TTSStudioService:
             return str(path)
 
     @staticmethod
+    def _make_gwen_model_key(model_id: str) -> str:
+        return f"model::{model_id.strip()}"
+
+    @staticmethod
     def _make_f5_model_key(model_name: str) -> str:
         return f"name::{model_name.strip()}"
+
+    def _probe_gwen_import(self) -> tuple[bool, str | None]:
+        if self._gwen_import_probe is not None:
+            return self._gwen_import_probe
+
+        if importlib.util.find_spec("qwen_tts") is None:
+            self._gwen_import_probe = (False, "Chưa cài gói `qwen_tts`.")
+            return self._gwen_import_probe
+
+        try:
+            importlib.import_module("qwen_tts")
+        except Exception as exc:
+            self._gwen_import_probe = (False, _format_gwen_import_error(exc))
+            return self._gwen_import_probe
+
+        self._gwen_import_probe = (True, None)
+        return self._gwen_import_probe
 
     def _probe_f5_import(self) -> tuple[bool, str | None]:
         if self._f5_import_probe is not None:
@@ -656,6 +715,42 @@ class TTSStudioService:
             "options": options,
         }
 
+    def _gwen_model_selection(self) -> dict[str, Any]:
+        options = [
+            {
+                "key": "default",
+                "label": f"Mặc định: {self.gwen_model_id}",
+                "value": self.gwen_model_id,
+                "mode": "default",
+                "requires_reference_text": True,
+            }
+        ]
+        seen_keys = {"default"}
+        for label, value in _parse_named_choices(self.gwen_model_choices):
+            key = self._make_gwen_model_key(value)
+            if key in seen_keys:
+                continue
+            options.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "value": value,
+                    "mode": "name",
+                    "requires_reference_text": True,
+                }
+            )
+            seen_keys.add(key)
+
+        return {
+            "default_key": "default",
+            "allow_custom": True,
+            "default_value": self.gwen_model_id,
+            "custom_placeholder": "Ví dụ: g-group-ai-lab/gwen-tts-0.6B hoặc repo HF khác tương thích qwen-tts",
+            "help_primary": "Gwen-TTS đang là model chủ chốt của project. Luôn cần transcript tham chiếu chính xác.",
+            "help_secondary": "Model được nạp qua `qwen_tts.Qwen3TTSModel.from_pretrained(...)`; custom cho phép đổi sang repo HF compatible khác.",
+            "options": options,
+        }
+
     def _vieneu_mode_selection(self) -> dict[str, Any]:
         default_requires_reference_text = _vieneu_mode_requires_reference_text(self.vieneu_mode)
         options = [
@@ -705,6 +800,8 @@ class TTSStudioService:
 
     def get_model_selection(self, engine_id: str) -> dict[str, Any]:
         engine = _normalize_engine_id(engine_id)
+        if engine == "gwen":
+            return self._gwen_model_selection()
         if engine == "f5":
             return self._f5_model_selection()
         if engine == "vieneu":
@@ -721,6 +818,38 @@ class TTSStudioService:
         engine = _normalize_engine_id(engine_id)
         key = (model_key or "default").strip() or "default"
         custom = (custom_model or "").strip()
+
+        if engine == "gwen":
+            if key == "__custom__":
+                if not custom:
+                    raise TTSError("Hãy nhập model Gwen tùy chỉnh trước khi generate.")
+                model_id = custom
+            elif key == "default":
+                model_id = self.gwen_model_id
+                return {
+                    "key": "default",
+                    "label": self.gwen_model_id,
+                    "mode": "default",
+                    "model_id": self.gwen_model_id,
+                    "dtype": self.gwen_dtype,
+                    "attn_implementation": self.gwen_attn_implementation,
+                    "cache_key": f"gwen::default::{self.gwen_model_id}::{self.gwen_dtype}::{self.gwen_attn_implementation}",
+                }
+            elif key.startswith("model::"):
+                model_id = key.split("::", 1)[1].strip()
+            else:
+                raise TTSError("Lựa chọn model Gwen không hợp lệ.")
+            if not model_id:
+                raise TTSError("Model Gwen không hợp lệ.")
+            return {
+                "key": self._make_gwen_model_key(model_id),
+                "label": model_id,
+                "mode": "name",
+                "model_id": model_id,
+                "dtype": self.gwen_dtype,
+                "attn_implementation": self.gwen_attn_implementation,
+                "cache_key": f"gwen::{model_id}::{self.gwen_dtype}::{self.gwen_attn_implementation}",
+            }
 
         if engine == "f5":
             if key == "__custom__":
@@ -795,6 +924,7 @@ class TTSStudioService:
 
     def get_engine_cards(self) -> list[EngineCard]:
         return [
+            self._gwen_card(),
             self._vieneu_card(),
             self._f5_card(),
         ]
@@ -837,6 +967,10 @@ class TTSStudioService:
             model_key=model_key,
             custom_model=custom_model,
         )
+        if engine.id == "gwen" and not reference_text:
+            raise TTSError(
+                "Gwen-TTS cần transcript tham chiếu. Hãy nhập đúng câu đang có trong audio tham chiếu trước khi generate."
+            )
         if engine.id == "vieneu" and _vieneu_mode_requires_reference_text(model_spec["mode_name"]) and not reference_text:
             raise TTSError(
                 f"Mode VieNeu `{model_spec['mode_name']}` cần transcript tham chiếu. "
@@ -844,6 +978,15 @@ class TTSStudioService:
             )
 
         output_path = self.output_dir / f"{int(time.time())}-{uuid.uuid4().hex[:10]}-{engine.id}.wav"
+        if engine.id == "gwen":
+            return self._synthesize_with_gwen(
+                text=text,
+                reference_audio=reference_audio,
+                reference_text=reference_text,
+                model_spec=model_spec,
+                output_path=output_path,
+                speed=speed,
+            )
         if engine.id == "f5":
             return self._synthesize_with_f5(
                 text=text,
@@ -890,6 +1033,27 @@ class TTSStudioService:
 
         prepared_path = self.reference_dir / f"{reference_audio.stem}-vieneu-24k.wav"
         sf.write(prepared_path, audio_np, target_sr)
+        prep_stats["activity_ratio_after_trim"] = activity_after_trim
+        return prepared_path, duration_seconds, prep_stats
+
+    def _prepare_reference_audio_for_gwen(self, reference_audio: Path) -> tuple[Path, float, dict[str, float | bool]]:
+        target_sr = 24000
+        audio_np, sr = _load_audio_mono_float(reference_audio, target_sr=target_sr)
+        audio_np, prep_stats = _trim_reference_silence(audio_np, sr)
+        duration_seconds = float(len(audio_np) / sr)
+        activity_after_trim = _estimate_activity_ratio(audio_np, sr)
+        if duration_seconds < 2.0:
+            raise TTSError("Audio tham chiếu quá ngắn cho Gwen-TTS. Hãy dùng đoạn nói rõ dài tối thiểu khoảng 2 giây, tốt nhất 3-10 giây.")
+        if duration_seconds > 18.0:
+            raise TTSError("Audio tham chiếu quá dài cho Gwen-TTS. Hãy cắt còn khoảng 3-10 giây để clone giọng ổn định hơn.")
+        if activity_after_trim < 0.12:
+            raise TTSError(
+                "Audio tham chiếu có quá nhiều khoảng lặng cho Gwen-TTS. "
+                "Hãy cắt còn đoạn nói liên tục, rõ tiếng hơn."
+            )
+
+        prepared_path = self.reference_dir / f"{reference_audio.stem}-gwen-24k.wav"
+        sf.write(prepared_path, audio_np, target_sr, subtype="PCM_16")
         prep_stats["activity_ratio_after_trim"] = activity_after_trim
         return prepared_path, duration_seconds, prep_stats
 
@@ -947,6 +1111,45 @@ class TTSStudioService:
             notes.append("Audio tham chiếu cho F5-TTS hơi dài; tốt nhất nên giữ khoảng 3-12 giây để clone giọng ổn định hơn.")
 
         return prepared_path, duration_seconds, notes
+
+    def _gwen_card(self) -> EngineCard:
+        module_ok, import_warning = self._probe_gwen_import()
+        runtime_warning = self._gwen_runtime_stack_warning() if module_ok else None
+        if module_ok and not runtime_warning:
+            summary = "Sẵn sàng dùng Gwen-TTS 0.6B cho voice cloning tiếng Việt."
+            warning = None
+        elif runtime_warning:
+            summary = "Gwen-TTS chưa sẵn sàng với runtime hiện tại."
+            warning = runtime_warning
+        elif import_warning == "Chưa cài gói `qwen_tts`.":
+            summary = import_warning
+            warning = (
+                "Engine Gwen-TTS chưa khả dụng trong môi trường này. "
+                "Cài `qwen-tts` rồi khởi động lại ứng dụng."
+            )
+        else:
+            summary = "Gwen-TTS cài chưa đủ dependency."
+            warning = import_warning
+
+        return EngineCard(
+            id="gwen",
+            label="Gwen-TTS",
+            headline="Model chủ chốt cho tiếng Việt, fine-tune từ Qwen3-TTS-0.6B để clone giọng tự nhiên hơn.",
+            description="Adapter này dùng `qwen_tts.Qwen3TTSModel.from_pretrained(...)` với repo Gwen-TTS trên Hugging Face và dựng reusable clone prompt từ audio tham chiếu.",
+            recommended_for="Dùng mặc định khi cần chất lượng clone giọng Việt cao, có GPU CUDA, và có transcript tham chiếu chính xác.",
+            output_quality="WAV theo sample rate đầu ra của Qwen3/Gwen-TTS, ưu tiên chất lượng hơn tốc độ.",
+            reference_hint="Audio tham chiếu 3-10 giây, một người nói, ít nhạc nền. Bắt buộc nhập đúng transcript của audio mẫu.",
+            supports_reference_text=True,
+            ready=bool(module_ok and not runtime_warning),
+            summary=summary,
+            warning=warning,
+            metadata={
+                "model": self.gwen_model_id,
+                "dtype": self.gwen_dtype,
+                "attn_implementation": self.gwen_attn_implementation,
+                "model_selection": self._gwen_model_selection(),
+            },
+        )
 
     def _f5_card(self) -> EngineCard:
         module_ok, import_warning = self._probe_f5_import()
@@ -1066,6 +1269,61 @@ class TTSStudioService:
                 instance = F5TTS(**kwargs)
             except Exception as exc:  # pragma: no cover - depends on external install
                 raise TTSError(f"Khởi tạo F5-TTS thất bại: {exc}") from exc
+
+            self._loaded_models[cache_key] = instance
+            return instance
+
+    def _load_gwen(self, model_spec: dict[str, Any]) -> Any:
+        with self._locks["gwen"]:
+            cache_key = model_spec["cache_key"]
+            if cache_key in self._loaded_models:
+                return self._loaded_models[cache_key]
+
+            try:
+                import torch
+                from qwen_tts import Qwen3TTSModel
+            except Exception as exc:  # pragma: no cover - depends on external install
+                raise TTSError(_format_gwen_import_error(exc)) from exc
+
+            if not torch.cuda.is_available():
+                raise TTSError("Gwen-TTS trong project này cần GPU CUDA để chạy local.")
+
+            dtype_map = {
+                "bfloat16": torch.bfloat16,
+                "float16": torch.float16,
+                "float32": torch.float32,
+            }
+            dtype_name = str(model_spec["dtype"]).strip().lower()
+            if dtype_name not in dtype_map:
+                raise TTSError(f"GWEN_DTYPE='{model_spec['dtype']}' không hợp lệ. Dùng `bfloat16`, `float16` hoặc `float32`.")
+
+            runtime_attn = model_spec["attn_implementation"]
+            try:
+                instance = Qwen3TTSModel.from_pretrained(
+                    model_spec["model_id"],
+                    device_map="cuda:0",
+                    dtype=dtype_map[dtype_name],
+                    attn_implementation=runtime_attn,
+                )
+            except Exception as exc:  # pragma: no cover - depends on external install
+                if runtime_attn == "flash_attention_2":
+                    try:
+                        instance = Qwen3TTSModel.from_pretrained(
+                            model_spec["model_id"],
+                            device_map="cuda:0",
+                            dtype=dtype_map[dtype_name],
+                            attn_implementation="sdpa",
+                        )
+                        runtime_attn = "sdpa"
+                    except Exception:
+                        raise TTSError(f"Khởi tạo Gwen-TTS thất bại: {_format_gwen_runtime_error(exc)}") from exc
+                else:
+                    raise TTSError(f"Khởi tạo Gwen-TTS thất bại: {_format_gwen_runtime_error(exc)}") from exc
+
+            try:
+                setattr(instance, "_gwen_runtime_attn_implementation", runtime_attn)
+            except Exception:
+                pass
 
             self._loaded_models[cache_key] = instance
             return instance
@@ -1211,6 +1469,104 @@ class TTSStudioService:
             chunk_count=len(chunks),
             reference_text_used=bool(reference_text),
             seed=seed,
+            notes=notes,
+        )
+
+    def _synthesize_with_gwen(
+        self,
+        *,
+        text: str,
+        reference_audio: Path,
+        reference_text: str,
+        model_spec: dict[str, Any],
+        output_path: Path,
+        speed: float,
+    ) -> SynthesisResult:
+        gwen = self._load_gwen(model_spec)
+        started = time.perf_counter()
+        prepared_reference_audio, ref_duration, ref_prep_stats = self._prepare_reference_audio_for_gwen(reference_audio)
+        chunks = _split_text_for_tts(text, max_chars=180)
+        if not chunks:
+            raise TTSError("Văn bản đầu vào rỗng sau khi chuẩn hóa cho Gwen-TTS.")
+
+        generation_kwargs = {
+            "temperature": 0.3,
+            "top_k": 20,
+            "top_p": 0.9,
+            "max_new_tokens": 4096,
+            "repetition_penalty": 2.0,
+            "subtalker_do_sample": True,
+            "subtalker_temperature": 0.1,
+            "subtalker_top_k": 20,
+            "subtalker_top_p": 1.0,
+        }
+
+        try:
+            if hasattr(gwen, "create_voice_clone_prompt"):
+                voice_clone_prompt = gwen.create_voice_clone_prompt(
+                    ref_audio=str(prepared_reference_audio),
+                    ref_text=reference_text,
+                    x_vector_only_mode=False,
+                )
+                wavs, sample_rate = gwen.generate_voice_clone(
+                    text=chunks if len(chunks) > 1 else chunks[0],
+                    language=["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese",
+                    voice_clone_prompt=voice_clone_prompt,
+                    **generation_kwargs,
+                )
+            else:
+                wavs, sample_rate = gwen.generate_voice_clone(
+                    text=chunks if len(chunks) > 1 else chunks[0],
+                    language=["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese",
+                    ref_audio=str(prepared_reference_audio),
+                    ref_text=reference_text,
+                    **generation_kwargs,
+                )
+        except Exception as exc:  # pragma: no cover - depends on external install
+            raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
+
+        raw_waves = wavs if isinstance(wavs, (list, tuple)) else [wavs]
+        chunk_waves = [_to_numpy_audio(wave) for wave in raw_waves]
+        if not chunk_waves or any(wave.size == 0 for wave in chunk_waves):
+            raise TTSError("Gwen-TTS trả về audio rỗng. Hãy thử rút ngắn văn bản hoặc đổi audio tham chiếu.")
+
+        sample_rate_int = int(sample_rate or 24000)
+        combined = _crossfade_join(chunk_waves, sample_rate=sample_rate_int)
+        sf.write(output_path, combined, sample_rate_int)
+
+        elapsed = time.perf_counter() - started
+        runtime_attn = getattr(gwen, "_gwen_runtime_attn_implementation", model_spec["attn_implementation"])
+        notes = [
+            f"Audio tham chiếu Gwen sau chuẩn hóa dài khoảng {ref_duration:.2f}s.",
+            "Gwen-TTS dùng transcript tham chiếu để dựng reusable clone prompt rồi tái sử dụng cho toàn bộ chunk.",
+        ]
+        if ref_prep_stats.get("trimmed"):
+            notes.append(
+                f"Đã tự cắt khoảng lặng đầu/cuối khỏi audio tham chiếu (~{float(ref_prep_stats['trimmed_seconds']):.2f}s)."
+            )
+        if float(ref_prep_stats.get("activity_ratio_after_trim", 0.0)) < 0.28:
+            notes.append("Audio tham chiếu có mật độ giọng nói hơi thưa; Gwen vẫn chạy được nhưng độ bám giọng có thể giảm.")
+        if runtime_attn != model_spec["attn_implementation"]:
+            notes.append(f"Gwen-TTS đã fallback attention từ `{model_spec['attn_implementation']}` sang `{runtime_attn}` để load ổn định hơn.")
+        if abs(float(speed) - 1.0) > 1e-6:
+            notes.append("Thanh speed của UI hiện chưa map vào generation config của Gwen-TTS; model đang chạy theo cấu hình chuẩn.")
+        if len(chunks) > 1:
+            notes.append(f"Văn bản được tách thành {len(chunks)} chunk để giữ chất lượng clone ổn định hơn.")
+        if model_spec["key"] != "default":
+            notes.insert(0, f"Đã dùng model Gwen tùy chọn: {model_spec['label']}.")
+
+        return SynthesisResult(
+            engine_id="gwen",
+            engine_label="Gwen-TTS",
+            model_key=model_spec["key"],
+            model_label=model_spec["label"],
+            output_path=output_path,
+            sample_rate=sample_rate_int,
+            duration_seconds=len(combined) / float(sample_rate_int),
+            inference_seconds=elapsed,
+            chunk_count=len(chunks),
+            reference_text_used=True,
+            seed=None,
             notes=notes,
         )
 
@@ -1726,6 +2082,16 @@ class TTSStudioService:
             return str(getattr(torch, "__version__", "") or "").strip() or None
         except Exception:
             return None
+
+    def _gwen_runtime_stack_warning(self) -> str | None:
+        version_label = self._torch_version_label()
+        if not version_label:
+            return "Gwen-TTS cần PyTorch và GPU CUDA để chạy local."
+
+        if not self._torch_cuda_available():
+            return "Gwen-TTS trong project này cần GPU CUDA để chạy local. Nếu runtime chỉ có CPU, hãy dùng VieNeu hoặc F5."
+
+        return None
 
     def _vieneu_runtime_stack_warning(self, mode_name: str) -> str | None:
         if not _vieneu_mode_requires_reference_text(mode_name):

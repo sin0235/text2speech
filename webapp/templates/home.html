@@ -4,11 +4,11 @@
 <section class="hero-card">
   <div class="hero-copy">
     <div class="eyebrow">Blue-White Voice Cloning Workspace</div>
-    <h1>Text to speech tiếng Việt với <span>VieNeu-TTS Standard</span> và <span>F5-TTS</span></h1>
+    <h1>Text to speech tiếng Việt với <span>Gwen-TTS</span>, <span>VieNeu-TTS</span> và <span>F5-TTS</span></h1>
     <p class="subtitle">
       Chuyển đoạn script tiếng Việt thành audio ngay trong giao diện hiện tại,
       giữ nguyên font, theme, motion và màu chủ đạo xanh trắng, nhưng đổi flow
-      sang một studio TTS tập trung cho voice cloning, với VieNeu Standard là luồng mặc định.
+      sang một studio TTS tập trung cho voice cloning, với Gwen-TTS là luồng mặc định mới.
     </p>
 
     <div class="hero-inline-stats">
@@ -132,11 +132,11 @@
           name="reference_text"
           rows="3"
           class="form-control"
-          placeholder="VieNeu Standard cần transcript đúng với câu đang có trong audio tham chiếu."
+          placeholder="Gwen-TTS cần transcript đúng với câu đang có trong audio tham chiếu."
         ></textarea>
         <div class="field-meta">
-          <span id="referenceHintPrimary">Bắt buộc với VieNeu Standard/Fast</span>
-          <span id="referenceHintSecondary">Nhập nguyên câu có trong audio mẫu để VieNeu bám giọng và phát âm chính xác hơn</span>
+          <span id="referenceHintPrimary">Bắt buộc với Gwen-TTS</span>
+          <span id="referenceHintSecondary">Nhập nguyên câu có trong audio mẫu để Gwen dựng clone prompt và bám giọng chính xác hơn</span>
         </div>
       </div>
 
@@ -182,7 +182,7 @@
         <div class="control-card">
           <label for="seedInput">Seed</label>
           <input id="seedInput" name="seed" class="form-control compact-input" type="number" min="0" placeholder="Tùy chọn" />
-          <div class="field-meta single-line">Chủ yếu hữu ích khi bạn chủ động chuyển sang F5-TTS.</div>
+          <div class="field-meta single-line">Hiện hữu ích chủ yếu với F5-TTS; Gwen và VieNeu chưa dùng seed của UI.</div>
         </div>
       </div>
 
@@ -218,7 +218,7 @@
 
       {% if status_summary.ready_count == 0 %}
       <div class="empty-state small">
-        Chưa có engine nào khả dụng trong môi trường hiện tại. Cài VieNeu-TTS Standard trước khi generate.
+        Chưa có engine nào khả dụng trong môi trường hiện tại. Cài Gwen-TTS trước khi generate.
       </div>
       {% endif %}
     </div>
@@ -243,7 +243,7 @@
       Kết quả mới nhất
     </div>
     <div id="resultState" class="empty-state">
-      Chưa có audio nào được sinh. Hãy nhập script, upload một câu tham chiếu và thêm transcript nếu dùng VieNeu Standard.
+      Chưa có audio nào được sinh. Hãy nhập script, upload một câu tham chiếu và thêm transcript nếu dùng Gwen-TTS hoặc VieNeu Standard.
     </div>
     <div id="resultCard" class="result-card hidden">
       <div class="result-topline">
@@ -331,8 +331,12 @@
     return ((currentOption && currentOption.value) || selection.default_value || '').toLowerCase();
   }
 
-  function selectedVieneuRequiresReferenceText() {
-    if (getSelectedEngine() !== 'vieneu') {
+  function selectedEngineRequiresReferenceText() {
+    const engineId = getSelectedEngine();
+    if (engineId === 'gwen') {
+      return true;
+    }
+    if (engineId !== 'vieneu') {
       return false;
     }
     if (modelSelect.value === '__custom__') {
@@ -348,9 +352,13 @@
 
   function syncReferenceTextUi() {
     const engineId = getSelectedEngine();
-    const requiresTranscript = selectedVieneuRequiresReferenceText();
+    const requiresTranscript = selectedEngineRequiresReferenceText();
 
-    if (engineId === 'vieneu') {
+    if (engineId === 'gwen') {
+      referenceText.placeholder = 'Gwen-TTS luôn cần transcript đúng với câu đang có trong audio tham chiếu.';
+      referenceHintPrimary.textContent = 'Bắt buộc với Gwen-TTS';
+      referenceHintSecondary.textContent = 'Nhập nguyên câu trong audio mẫu để Gwen dựng voice clone prompt ổn định.';
+    } else if (engineId === 'vieneu') {
       referenceText.placeholder = requiresTranscript
         ? 'VieNeu Standard/Fast cần transcript đúng với câu đang có trong audio tham chiếu.'
         : 'Có thể nhập transcript để lưu đối chiếu, nhưng mode VieNeu hiện tại không bắt buộc.';
@@ -559,9 +567,14 @@
       alert('Vui lòng chọn audio tham chiếu trước khi generate.');
       return;
     }
-    if (selectedVieneuRequiresReferenceText() && !referenceText.value.trim()) {
+    if (selectedEngineRequiresReferenceText() && !referenceText.value.trim()) {
       referenceText.focus();
-      alert('VieNeu Standard/Fast cần transcript tham chiếu. Hãy nhập đúng câu có trong audio mẫu.');
+      const engineId = getSelectedEngine();
+      if (engineId === 'gwen') {
+        alert('Gwen-TTS cần transcript tham chiếu. Hãy nhập đúng câu có trong audio mẫu.');
+      } else {
+        alert('VieNeu Standard/Fast cần transcript tham chiếu. Hãy nhập đúng câu có trong audio mẫu.');
+      }
       return;
     }
     const selectedFile = referenceAudio.files[0];

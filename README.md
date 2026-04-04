@@ -1,9 +1,10 @@
 # Vietnamese TTS Studio
 
-Flask webapp cho text-to-speech tiếng Việt, dùng hai engine:
+Flask webapp cho text-to-speech tiếng Việt, hiện hỗ trợ ba engine:
 
-- `VieNeu-TTS` làm engine mặc định, hiện ưu tiên mode `standard` cho chất lượng.
-- `F5-TTS` giữ lại như engine phụ để thử model hoặc flow khác.
+- `Gwen-TTS` là model chủ chốt, ưu tiên voice cloning tiếng Việt với transcript tham chiếu.
+- `VieNeu-TTS` giữ vai trò engine phụ cho flow tiếng Việt 24kHz.
+- `F5-TTS` vẫn có sẵn để thử model hoặc flow khác.
 
 ## Run
 
@@ -20,13 +21,35 @@ Notebook Colab để clone hoặc pull repo, chạy webapp và mở Cloudflare t
 
 - `colab_tts_cloudflare.ipynb`
 
-Nếu gặp lỗi kiểu `Codec 'neuphonic/distill-neucodec' requires PyTorch`, `torch >= 2.11.0`, hoặc `libtorchaudio.so: undefined symbol: torch_list_push_back`, hãy dùng notebook mới nhất:
+Nếu gặp lỗi kiểu `Codec 'neuphonic/distill-neucodec' requires PyTorch`, `torch >= 2.11.0`, `libtorchaudio.so: undefined symbol: torch_list_push_back`, hoặc thiếu stack cho `qwen-tts`, hãy dùng notebook mới nhất:
 
+- notebook hiện mặc định `TTS_DEFAULT_ENGINE=gwen`, cài `qwen-tts`, và vẫn giữ cả VieNeu-TTS lẫn F5-TTS để đổi engine ngay trên UI
 - notebook đã chuyển sang stack `torch>=2.11.0`, `torchaudio>=2.11.0` và index CUDA 12.8 (`cu128`) theo hướng upstream của VieNeu
 - notebook cũng uninstall lại bộ `torch/neucodec/vieneu` cũ trước khi cài để tránh lệch binary ABI
-- notebook hiện mặc định `TTS_DEFAULT_ENGINE=vieneu`, `VIENEU_MODE=standard`, và vẫn cài cả F5-TTS để bạn đổi engine ngay trên UI
+- notebook export thêm `GWEN_MODEL_ID` và `GWEN_ATTN_IMPLEMENTATION` để backend load Gwen-TTS theo đúng runtime hiện tại
 
 ## Engine setup
+
+### Gwen-TTS
+
+```powershell
+python -m pip install -U qwen-tts
+```
+
+Gwen-TTS là model mặc định của project. Engine này cần:
+
+- GPU CUDA để chạy local
+- audio tham chiếu khoảng 3-10 giây, một người nói, ít nhạc nền
+- transcript tham chiếu đúng với câu đang có trong audio mẫu
+
+Biến môi trường hỗ trợ:
+
+- `GWEN_MODEL_ID` mặc định là `g-group-ai-lab/gwen-tts-0.6B`
+- `GWEN_MODEL_CHOICES` thêm preset model Gwen trên UI, ngăn cách bằng `;`, hỗ trợ `label=value`
+- `GWEN_DTYPE` mặc định `bfloat16`
+- `GWEN_ATTN_IMPLEMENTATION` mặc định `flash_attention_2`; app sẽ fallback sang `sdpa` nếu load không được
+
+Nếu runtime không có GPU CUDA hoặc không cài được `flash-attn`, hãy giữ `GWEN_ATTN_IMPLEMENTATION=sdpa` hoặc đổi sang VieNeu/F5.
 
 ### F5-TTS
 
@@ -67,7 +90,7 @@ Biến môi trường hỗ trợ:
 
 Khuyến nghị:
 
-- giữ `VIENEU_MODE=standard` nếu ưu tiên chất lượng và clone giọng sát hơn
+- giữ `VIENEU_MODE=standard` nếu cần engine phụ chất lượng cao và chấp nhận nhập transcript
 - chỉ đổi về `turbo` nếu runtime không đủ dependency cho Standard hoặc không có GPU
 - với Colab, rerun lại cell install nếu trước đó runtime từng cài torch 2.6/cu124 hoặc notebook cũ
 - dùng audio tham chiếu dài khoảng 3-8 giây, một người nói, ít nhạc nền
