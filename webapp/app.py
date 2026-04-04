@@ -4,7 +4,7 @@ import mimetypes
 from dataclasses import asdict
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 try:
@@ -70,6 +70,24 @@ def _pick_default_engine(engine_cards: list) -> str:
     return engine_cards[0].id if engine_cards else "gwen"
 
 
+def _engine_page_context(engine_id: str) -> dict:
+    context = _base_context(engine_id)
+    try:
+        engine_card = studio.get_engine_card(engine_id)
+    except TTSError as exc:
+        abort(404, description=str(exc))
+
+    context.update(
+        examples=TEXT_EXAMPLES,
+        reference_tips=REFERENCE_TIPS,
+        max_upload_mb=MAX_UPLOAD_MB,
+        engine_card=engine_card,
+        engine_card_payload=asdict(engine_card),
+        model_selection=engine_card.metadata.get("model_selection", studio.get_model_selection(engine_card.id)),
+    )
+    return context
+
+
 def _is_api_request() -> bool:
     return request.path.startswith("/api/")
 
@@ -98,15 +116,12 @@ def handle_api_http_exception(exc: HTTPException):
 
 @app.route("/")
 def home():
-    context = _base_context("home")
-    context.update(
-        examples=TEXT_EXAMPLES,
-        reference_tips=REFERENCE_TIPS,
-        max_upload_mb=MAX_UPLOAD_MB,
-        default_engine_id=_pick_default_engine(context["engine_cards"]),
-        engine_cards_payload=[asdict(card) for card in context["engine_cards"]],
-    )
-    return render_template("home.html", **context)
+    return redirect(url_for("engine_page", engine_id=_pick_default_engine(studio.get_engine_cards())))
+
+
+@app.route("/studio/<engine_id>")
+def engine_page(engine_id: str):
+    return render_template("studio_engine.html", **_engine_page_context(engine_id))
 
 
 @app.route("/voices")

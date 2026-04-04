@@ -10,6 +10,29 @@ class ApiErrorHandlingTest(unittest.TestCase):
     def setUp(self) -> None:
         self.client = app.test_client()
 
+    def test_home_redirects_to_default_engine_page(self) -> None:
+        response = self.client.get("/", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/studio/gwen"))
+
+    def test_engine_pages_render(self) -> None:
+        for engine_id, label in (
+            ("gwen", "Gwen-TTS"),
+            ("vieneu", "VieNeu-TTS"),
+            ("f5", "F5-TTS"),
+        ):
+            with self.subTest(engine_id=engine_id):
+                response = self.client.get(f"/studio/{engine_id}")
+
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(label, response.get_data(as_text=True))
+
+    def test_unknown_engine_page_returns_404(self) -> None:
+        response = self.client.get("/studio/does-not-exist")
+
+        self.assertEqual(response.status_code, 404)
+
     def test_generate_without_reference_audio_returns_json(self) -> None:
         response = self.client.post("/api/tts/generate", data={"text": "xin chao"})
 

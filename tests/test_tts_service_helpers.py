@@ -72,6 +72,16 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertIn("vieneu", message)
         self.assertIn("llama-cpp-python", message)
 
+    def test_format_vieneu_import_error_shortens_torchaudio_abi_mismatch(self) -> None:
+        exc = OSError(
+            "/usr/local/lib/python3.12/dist-packages/torchaudio/lib/_torchaudio.abi3.so: undefined symbol: torch_library_impl"
+        )
+
+        message = _format_vieneu_import_error(exc)
+
+        self.assertIn("lệch ABI", message)
+        self.assertIn("torch==2.11.0", message)
+
     def test_format_gwen_import_error_mentions_package(self) -> None:
         exc = ModuleNotFoundError("No module named 'flash_attn'", name="flash_attn")
 
@@ -100,6 +110,16 @@ class TTSServiceHelperTest(unittest.TestCase):
 
         self.assertIn("torchaudio/FFmpeg", message)
         self.assertIn("Gwen-TTS", message)
+
+    def test_format_f5_import_error_shortens_torchaudio_abi_mismatch(self) -> None:
+        exc = OSError(
+            "/usr/local/lib/python3.12/dist-packages/torchaudio/lib/_torchaudio.abi3.so: undefined symbol: torch_library_impl"
+        )
+
+        message = _format_f5_import_error(exc)
+
+        self.assertIn("lệch ABI", message)
+        self.assertIn("torchaudio==2.11.0", message)
 
     def test_format_gwen_runtime_error_mentions_sdpa_fallback(self) -> None:
         exc = RuntimeError("flash_attn kernel failed to initialize")

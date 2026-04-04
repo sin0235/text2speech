@@ -82,7 +82,28 @@ def _map_import_name_to_package(module_name: str) -> str:
     }.get((module_name or "").strip(), (module_name or "").strip())
 
 
+def _is_torch_audio_abi_mismatch_message(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(message or "")).strip().lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "undefined symbol: torch_library_impl",
+            "undefined symbol: torch_list_push_back",
+            "_torchaudio.abi3.so",
+            "libtorchaudio.so",
+            "pytorch version",
+            "not compatible with",
+        )
+    )
+
+
 def _format_f5_import_error(exc: Exception) -> str:
+    if _is_torch_audio_abi_mismatch_message(str(exc)):
+        return (
+            "F5-TTS không import được vì stack `torch`/`torchaudio` trong runtime đang lệch ABI. "
+            "Nếu đang dùng notebook Colab của repo này, hãy rerun cell cài dependencies bản mới "
+            "để dọn sạch package cũ và cài lại đúng cặp `torch==2.11.0` với `torchaudio==2.11.0`."
+        )
     if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None):
         missing_module = exc.name.strip()
         package_name = _map_import_name_to_package(missing_module)
@@ -97,14 +118,11 @@ def _format_f5_import_error(exc: Exception) -> str:
 
 def _format_f5_runtime_error(exc: Exception) -> str:
     normalized = re.sub(r"\s+", " ", str(exc or "")).strip().lower()
-    if any(
+    if _is_torch_audio_abi_mismatch_message(normalized) or any(
         marker in normalized
         for marker in (
             "could not load libtorchaudio codec",
-            "libtorchaudio",
             "ffmpeg is not properly installed",
-            "pytorch version",
-            "not compatible with",
         )
     ):
         return (
@@ -117,6 +135,12 @@ def _format_f5_runtime_error(exc: Exception) -> str:
 
 
 def _format_vieneu_import_error(exc: Exception) -> str:
+    if _is_torch_audio_abi_mismatch_message(str(exc)):
+        return (
+            "VieNeu-TTS không import được vì stack `torch`/`torchaudio` trong runtime đang lệch ABI. "
+            "Nếu đang dùng notebook Colab của repo này, hãy rerun cell cài dependencies bản mới "
+            "để dọn sạch package cũ và cài lại đúng cặp `torch==2.11.0` với `torchaudio==2.11.0`."
+        )
     if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None):
         missing_module = exc.name.strip()
         package_name = _map_import_name_to_package(missing_module)
@@ -132,7 +156,7 @@ def _format_vieneu_import_error(exc: Exception) -> str:
 def _format_vieneu_runtime_error(exc: Exception) -> str:
     normalized = re.sub(r"\s+", " ", str(exc or "")).strip()
     lowered = normalized.lower()
-    if any(
+    if _is_torch_audio_abi_mismatch_message(lowered) or any(
         marker in lowered
         for marker in (
             "requires pytorch",

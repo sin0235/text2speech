@@ -23,9 +23,9 @@ Notebook Colab để clone hoặc pull repo, chạy webapp và mở Cloudflare t
 
 Nếu gặp lỗi kiểu `Codec 'neuphonic/distill-neucodec' requires PyTorch`, `torch >= 2.11.0`, `libtorchaudio.so: undefined symbol: torch_list_push_back`, hoặc thiếu stack cho `qwen-tts`, hãy dùng notebook mới nhất:
 
-- notebook hiện mặc định `TTS_DEFAULT_ENGINE=gwen`, cài `qwen-tts`, và vẫn giữ cả VieNeu-TTS lẫn F5-TTS để đổi engine ngay trên UI
-- notebook đã chuyển sang stack `torch>=2.11.0`, `torchaudio>=2.11.0` và index CUDA 12.8 (`cu128`) theo hướng upstream của VieNeu
-- notebook cũng uninstall lại bộ `torch/neucodec/vieneu` cũ trước khi cài để tránh lệch binary ABI
+- notebook hiện mặc định `TTS_DEFAULT_ENGINE=gwen`, cài `qwen-tts`, và vẫn giữ cả VieNeu-TTS lẫn F5-TTS để mở từng page engine riêng trên UI
+- notebook pin đúng cặp `torch==2.11.0`, `torchaudio==2.11.0` và index CUDA 12.8 (`cu128`) theo hướng upstream của VieNeu
+- notebook cũng dọn residue `torch/torchaudio/neucodec/vieneu` cũ trước khi cài và verify stack trong subprocess sạch để tránh lệch binary ABI
 - notebook export thêm `GWEN_MODEL_ID` và `GWEN_ATTN_IMPLEMENTATION` để backend load Gwen-TTS theo đúng runtime hiện tại
 
 ## Engine setup
@@ -101,6 +101,12 @@ Khuyến nghị:
 - `GET /api/tts/status`
 - `POST /api/tts/generate` nhận thêm `model_key` và `custom_model` để chọn model theo từng request
 - `GET /outputs/<filename>`
+
+## UI routes
+
+- `/studio/gwen`
+- `/studio/vieneu`
+- `/studio/f5`
 
 ## Runtime folders
 
