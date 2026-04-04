@@ -308,67 +308,16 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertEqual(voice.name, "Yến Nhi")
         self.assertEqual(audio_path, preset_audio)
 
-    def test_get_preset_voices_prefers_upstream_reference_texts_when_available(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                root = Path(tmpdir)
-                preset_config = root / "webapp" / "data" / "gwen_preset_voices.json"
-                upstream_infer_info = root / ".tmp_gwen_repo" / "data" / "infer_info.json"
-                preset_config.parent.mkdir(parents=True, exist_ok=True)
-                upstream_infer_info.parent.mkdir(parents=True, exist_ok=True)
-                preset_config.write_text(
-                    json.dumps(
-                        [
-                            {
-                                "id": "yen_nhi",
-                                "name": "Yến Nhi",
-                                "avatar": "YN",
-                                "style": "Tự nhiên",
-                                "audio_filename": "yen_nhi.wav",
-                                "reference_text": "transcript local da bi lech",
-                            }
-                        ],
-                        ensure_ascii=False,
-                    ),
-                    encoding="utf-8",
-                )
-                upstream_infer_info.write_text(
-                    json.dumps(
-                        {
-                            "yen_nhi": {
-                                "name": "Yến Nhi",
-                                "audio_path": "data/infer-audio/yen_nhi.wav",
-                                "text": "transcript upstream chinh xac",
-                            }
-                        },
-                        ensure_ascii=False,
-                    ),
-                    encoding="utf-8",
-                )
-                service = TTSStudioService(root)
-
-                voices = service.get_preset_voices("gwen")
-
-        self.assertEqual(len(voices), 1)
-        self.assertEqual(voices[0].reference_text, "transcript upstream chinh xac")
-
-    def test_bundled_official_gwen_presets_match_local_upstream_metadata_when_available(self) -> None:
+    def test_bundled_yen_nhi_preset_keeps_reference_transcript_not_inference_text(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
-        upstream_infer_info = repo_root / ".tmp_gwen_repo" / "data" / "infer_info.json"
-        if not upstream_infer_info.exists():
-            self.skipTest("Không có checkout Gwen upstream cục bộ để đối chiếu preset.")
-
         bundled_presets = json.loads((repo_root / "webapp" / "data" / "gwen_preset_voices.json").read_text(encoding="utf-8"))
-        upstream_presets = json.loads(upstream_infer_info.read_text(encoding="utf-8"))
         bundled_by_id = {str(item["id"]).strip().lower(): item for item in bundled_presets if isinstance(item, dict) and item.get("id")}
 
-        for voice_id, upstream_meta in upstream_presets.items():
-            normalized_voice_id = str(voice_id).strip().lower()
-            self.assertIn(normalized_voice_id, bundled_by_id)
-            self.assertEqual(
-                bundled_by_id[normalized_voice_id]["reference_text"],
-                str(upstream_meta.get("text", "")).strip(),
-            )
+        self.assertIn("yen_nhi", bundled_by_id)
+        self.assertEqual(
+            bundled_by_id["yen_nhi"]["reference_text"],
+            "sao lại không liên quan. các anh lấy vợ rồi các anh cứ đội chị lên đầu làm nóc nhà ấy, suốt ngày hỏi ý kiến các chị thì làm sao mà ra vấn đề được cho em đúng không.",
+        )
 
     def test_prepare_reference_audio_for_gwen_keeps_wav_input_path(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

@@ -1059,7 +1059,6 @@ class TTSStudioService:
         self.static_dir = self.root / "webapp" / "static"
         self.voice_preset_dir = self.static_dir / "voice_presets"
         self.gwen_preset_config_path = self.root / "webapp" / "data" / "gwen_preset_voices.json"
-        self.gwen_upstream_infer_info_path = self.root / ".tmp_gwen_repo" / "data" / "infer_info.json"
         self.reference_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
@@ -1105,28 +1104,6 @@ class TTSStudioService:
     def _make_f5_model_key(model_name: str) -> str:
         return f"name::{model_name.strip()}"
 
-    def _load_gwen_upstream_reference_texts(self) -> dict[str, str]:
-        if not self.gwen_upstream_infer_info_path.exists():
-            return {}
-
-        try:
-            raw_items = json.loads(self.gwen_upstream_infer_info_path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-
-        if not isinstance(raw_items, dict):
-            return {}
-
-        reference_texts: dict[str, str] = {}
-        for voice_id, item in raw_items.items():
-            if not isinstance(item, dict):
-                continue
-            normalized_id = str(voice_id or "").strip().lower()
-            reference_text = str(item.get("text", "")).strip()
-            if normalized_id and reference_text:
-                reference_texts[normalized_id] = reference_text
-        return reference_texts
-
     def _load_gwen_preset_voices(self) -> list[PresetVoice]:
         if self._gwen_preset_voices_cache is not None:
             return self._gwen_preset_voices_cache
@@ -1141,7 +1118,6 @@ class TTSStudioService:
             self._gwen_preset_voices_cache = []
             return self._gwen_preset_voices_cache
 
-        upstream_reference_texts = self._load_gwen_upstream_reference_texts()
         voices: list[PresetVoice] = []
         for item in raw_items:
             if not isinstance(item, dict):
@@ -1149,7 +1125,6 @@ class TTSStudioService:
             voice_id = str(item.get("id", "")).strip()
             if not voice_id:
                 continue
-            normalized_voice_id = voice_id.lower()
             voices.append(
                 PresetVoice(
                     id=voice_id,
@@ -1157,10 +1132,7 @@ class TTSStudioService:
                     avatar=str(item.get("avatar", voice_id[:2].upper())).strip() or voice_id[:2].upper(),
                     style=str(item.get("style", "Preset")).strip() or "Preset",
                     audio_filename=str(item.get("audio_filename", f"{voice_id}.wav")).strip() or f"{voice_id}.wav",
-                    reference_text=upstream_reference_texts.get(
-                        normalized_voice_id,
-                        str(item.get("reference_text", "")).strip(),
-                    ),
+                    reference_text=str(item.get("reference_text", "")).strip(),
                 )
             )
 

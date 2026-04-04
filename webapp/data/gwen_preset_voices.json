@@ -5,7 +5,7 @@
     "avatar": "YN",
     "style": "Tự nhiên",
     "audio_filename": "yen_nhi.wav",
-    "reference_text": "Dạ chào anh, em gọi trực tiếp từ bộ phận phê duyệt hồ sơ thẻ tín dụng. Hiện tại hồ sơ của mình đang nằm trong danh sách ưu tiên nhận hạn mức lên đến hai trăm triệu đồng, kèm ưu đãi miễn phí thường niên trọn đời. Không biết mình có tiện trao đổi hai phút để em hướng dẫn nhận thẻ ngay không ạ?"
+    "reference_text": "sao lại không liên quan. các anh lấy vợ rồi các anh cứ đội chị lên đầu làm nóc nhà ấy, suốt ngày hỏi ý kiến các chị thì làm sao mà ra vấn đề được cho em đúng không."
   },
   {
     "id": "my_van",
@@ -13,7 +13,7 @@
     "avatar": "MV",
     "style": "Nhẹ nhàng",
     "audio_filename": "my_van.wav",
-    "reference_text": "Dạ chào anh, em gọi trực tiếp từ bộ phận phê duyệt hồ sơ thẻ tín dụng. Hiện tại hồ sơ của mình đang nằm trong danh sách ưu tiên nhận hạn mức lên đến hai trăm triệu đồng, kèm ưu đãi miễn phí thường niên trọn đời. Không biết mình có tiện trao đổi hai phút để em hướng dẫn nhận thẻ ngay không ạ?"
+    "reference_text": "bạn thân mến, chúng ta sẽ đến với một bài tập tiếp theo để giúp cho các bạn có hơi thở dài, sâu và đầy đặn hơn."
   },
   {
     "id": "ai_vy",
@@ -21,7 +21,7 @@
     "avatar": "AV",
     "style": "Truyền cảm",
     "audio_filename": "ai_vy.wav",
-    "reference_text": "Dạ chào anh, em gọi trực tiếp từ bộ phận phê duyệt hồ sơ thẻ tín dụng. Hiện tại hồ sơ của mình đang nằm trong danh sách ưu tiên nhận hạn mức lên đến hai trăm triệu đồng, kèm ưu đãi miễn phí thường niên trọn đời. Không biết mình có tiện trao đổi hai phút để em hướng dẫn nhận thẻ ngay không ạ?"
+    "reference_text": "việt nam đang kiêu hãnh bước vào kỷ nguyên vươn mình rực rỡ với khát vọng mãnh liệt, trí tuệ đổi mới và tinh thần đoàn kết đất nước, tự tin bứt phá, kiến tạo một tương lai thịnh vượng và vươn tầm quốc tế."
   },
   {
     "id": "an_nhi",
@@ -29,7 +29,7 @@
     "avatar": "AN",
     "style": "Trẻ trung",
     "audio_filename": "an_nhi.wav",
-    "reference_text": "Thưa quý vị, sáng nay tại TP.HCM, Diễn đàn Kinh tế số đã chính thức khai mạc. Phát biểu tại hội nghị, các chuyên gia nhấn mạnh việc ứng dụng Trí tuệ nhân tạo sẽ là đòn bẩy chiến lược giúp doanh nghiệp tối ưu hóa quy trình sản xuất và nâng cao năng lực cạnh tranh trong kỷ nguyên công nghệ bốn chấm không."
+    "reference_text": "việt nam đang kiêu hãnh bước vào kỷ nguyên vươn mình rực rỡ với khát vọng mãnh liệt, trí tuệ đổi mới và tinh thần đoàn kết đất nước, tự tin bứt phá, kiến tạo một tương lai thịnh vượng và vươn tầm quốc tế."
   },
   {
     "id": "dieu_linh",
@@ -37,7 +37,7 @@
     "avatar": "DL",
     "style": "Thanh lịch",
     "audio_filename": "dieu_linh.wav",
-    "reference_text": "Thưa quý vị, sáng nay tại TP.HCM, Diễn đàn Kinh tế số đã chính thức khai mạc. Phát biểu tại hội nghị, các chuyên gia nhấn mạnh việc ứng dụng Trí tuệ nhân tạo sẽ là đòn bẩy chiến lược giúp doanh nghiệp tối ưu hóa quy trình sản xuất và nâng cao năng lực cạnh tranh trong kỷ nguyên công nghệ bốn chấm không."
+    "reference_text": "việt nam đang kiêu hãnh bước vào một kỷ nguyên vươn mình rực rỡ với khát vọng mãnh liệt, trí tuệ đổi mới và tinh thần đoàn kết."
   },
   {
     "id": "khanh_toan",
@@ -45,7 +45,7 @@
     "avatar": "KT",
     "style": "Nam trầm",
     "audio_filename": "khanh_toan.wav",
-    "reference_text": "Thưa quý vị, sáng nay tại TP.HCM, Diễn đàn Kinh tế số đã chính thức khai mạc. Phát biểu tại hội nghị, các chuyên gia nhấn mạnh việc ứng dụng Trí tuệ nhân tạo sẽ là đòn bẩy chiến lược giúp doanh nghiệp tối ưu hóa quy trình sản xuất và nâng cao năng lực cạnh tranh trong kỷ nguyên công nghệ bốn chấm không."
+    "reference_text": "việt nam đang kiêu hãnh bước vào kỷ nguyên vươn mình rực rỡ với khát vọng mãnh liệt, trí tuệ đổi mới, tinh thần đoàn kết."
   },
   {
     "id": "tran_lam",
@@ -53,7 +53,7 @@
     "avatar": "TL",
     "style": "Nam trung",
     "audio_filename": "tran_lam.wav",
-    "reference_text": "Trên tay mình lúc này là siêu phẩm mới nhất trong năm nay. Cảm giác cầm nắm cực kỳ đầm tay với khung viền titan sang trọng. Điểm ăn tiền nhất chính là cụm camera được nâng cấp mạnh mẽ, cho khả năng quay phim chuẩn điện ảnh ngay cả trong điều kiện thiếu sáng. Một thiết bị thực sự đáng đồng tiền bát gạo!"
+    "reference_text": "trí tuệ đổi mới và tinh thần đoàn kết, đất nước tự tin bứt phá, kiến tạo một tương lai thịnh vượng và vươn tầm quốc tế."
   },
   {
     "id": "nsnd_ha_phuong",
@@ -61,7 +61,7 @@
     "avatar": "HP",
     "style": "Phát thanh viên",
     "audio_filename": "nsnd_ha_phuong.wav",
-    "reference_text": "Khi thành phố đã chìm sâu vào giấc ngủ, chỉ còn tiếng gió khẽ lay những tán lá bên cửa sổ. Hãy gạt bỏ mọi lo âu của ngày dài, thả mình vào sự tĩnh lặng tuyệt đối. Trong giấc mơ đêm nay, bạn sẽ thấy mình đi lạc vào một cánh rừng nguyên sơ, nơi chỉ có tiếng suối róc rách và hương hoa cỏ dịu nhẹ..."
+    "reference_text": "đây là những lời cuối cùng của típ rót người sáng lập ra ai phôn áp bồ chấn động cả thế giới."
   },
   {
     "id": "nsnd_kim_cuc",
@@ -69,7 +69,7 @@
     "avatar": "KC",
     "style": "Kể chuyện",
     "audio_filename": "nsnd_kim_cuc.wav",
-    "reference_text": "Khi thành phố đã chìm sâu vào giấc ngủ, chỉ còn tiếng gió khẽ lay những tán lá bên cửa sổ. Hãy gạt bỏ mọi lo âu của ngày dài, thả mình vào sự tĩnh lặng tuyệt đối. Trong giấc mơ đêm nay, bạn sẽ thấy mình đi lạc vào một cánh rừng nguyên sơ, nơi chỉ có tiếng suối róc rách và hương hoa cỏ dịu nhẹ..."
+    "reference_text": "đi họp người ta đả thông mãi rồi. lão dòng tai nghe, rồi lão rủm cả người. lão làm như vô tình kéo ghế xích lại đám đông."
   },
   {
     "id": "kha_han",
