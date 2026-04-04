@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -37,6 +38,8 @@ except ImportError:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parent.parent
 app = Flask(__name__, static_folder="static", template_folder="templates")
+app.logger.setLevel(logging.INFO)
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 MAX_UPLOAD_MB = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
 
@@ -111,6 +114,14 @@ class TTSJobManager:
                 "result": None,
                 "error": None,
             }
+        app.logger.info(
+            "Queued synth job: id=%s engine=%s model=%s voice=%s text_chars=%d",
+            job_id,
+            submission.engine_id,
+            submission.model_key,
+            submission.preset_voice.id if submission.preset_voice is not None else "custom",
+            len(submission.text),
+        )
         self._executor.submit(self._run_job, job_id, submission)
         return job_id
 
@@ -147,16 +158,33 @@ class TTSJobManager:
             status="running",
             message="Model đang synthesize trong nền. Request đã được tách khỏi kết nối Cloudflare.",
         )
+        app.logger.info(
+            "Running synth job: id=%s engine=%s model=%s voice=%s",
+            job_id,
+            submission.engine_id,
+            submission.model_key,
+            submission.preset_voice.id if submission.preset_voice is not None else "custom",
+        )
         try:
             payload = _execute_synthesis_submission(submission)
         except TTSError as exc:
+            app.logger.warning("Synth job failed: id=%s error=%s", job_id, exc)
             self._update_job(job_id, status="failed", error=str(exc), message=str(exc))
             return
         except Exception as exc:  # pragma: no cover
             error_message = f"Lỗi không mong muốn: {exc}"
+            app.logger.exception("Synth job crashed: id=%s", job_id)
             self._update_job(job_id, status="failed", error=error_message, message=error_message)
             return
 
+        app.logger.info(
+            "Completed synth job: id=%s engine=%s output=%s inference_seconds=%s duration_seconds=%s",
+            job_id,
+            submission.engine_id,
+            payload.get("download_name"),
+            payload.get("inference_seconds"),
+            payload.get("duration_seconds"),
+        )
         self._update_job(
             job_id,
             status="completed",
@@ -517,7 +545,21 @@ def api_tts_generate():
         )
 
     try:
+        app.logger.info(
+            "Running sync synth request: engine=%s model=%s voice=%s text_chars=%d",
+            submission.engine_id,
+            submission.model_key,
+            submission.preset_voice.id if submission.preset_voice is not None else "custom",
+            len(submission.text),
+        )
         payload = _execute_synthesis_submission(submission)
+        app.logger.info(
+            "Completed sync synth request: engine=%s output=%s inference_seconds=%s duration_seconds=%s",
+            submission.engine_id,
+            payload.get("download_name"),
+            payload.get("inference_seconds"),
+            payload.get("duration_seconds"),
+        )
     except TTSError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 422
     except HTTPException:
