@@ -16,7 +16,6 @@
 
   <form id="ttsForm" class="tts-board" enctype="multipart/form-data">
     <input type="hidden" name="engine" value="{{ engine_card.id }}" />
-    <input type="hidden" name="preset_voice_id" id="presetVoiceId" value="" />
 
     <section class="tts-stage">
       <div class="tts-editor-card">
@@ -141,7 +140,7 @@
           </div>
 
           <div id="presetVoiceSection" class="preset-voice-section preset-voice-section-compact">
-            <select id="presetVoiceSelect" class="form-control tts-side-input preset-voice-select">
+            <select id="presetVoiceSelect" name="preset_voice_id" class="form-control tts-side-input preset-voice-select">
               {% for voice in preset_voices_payload %}
               <option value="{{ voice.id }}">{{ voice.name }}{% if voice.style %} · {{ voice.style }}{% endif %}</option>
               {% endfor %}
@@ -368,7 +367,6 @@
   const uploadFileLabel = document.getElementById('uploadFileLabel');
   const modelSelect = document.getElementById('modelSelect');
   const customModelInput = document.getElementById('customModelInput');
-  const presetVoiceIdInput = document.getElementById('presetVoiceId');
   const presetModeBtn = document.getElementById('presetModeBtn');
   const customModeBtn = document.getElementById('customModeBtn');
   const presetVoiceSection = document.getElementById('presetVoiceSection');
@@ -418,14 +416,14 @@
   let gwenVoiceMode = ENGINE_ID === 'gwen' && VOICE_PRESETS.length ? 'preset' : 'custom';
 
   function usesPresetVoice() {
-    return ENGINE_ID === 'gwen' && gwenVoiceMode === 'preset' && !!presetVoiceIdInput && !!presetVoiceIdInput.value;
+    return ENGINE_ID === 'gwen' && gwenVoiceMode === 'preset' && !!presetVoiceSelect && !!presetVoiceSelect.value;
   }
 
   function getActivePresetVoice() {
-    if (!VOICE_PRESETS.length || !presetVoiceIdInput) {
+    if (!VOICE_PRESETS.length || !presetVoiceSelect) {
       return null;
     }
-    return VOICE_PRESETS.find((voice) => voice.id === presetVoiceIdInput.value) || VOICE_PRESETS[0] || null;
+    return VOICE_PRESETS.find((voice) => voice.id === presetVoiceSelect.value) || VOICE_PRESETS[0] || null;
   }
 
   function renderPresetVoiceDetail() {
@@ -434,9 +432,6 @@
       return;
     }
 
-    if (presetVoiceSelect && presetVoiceSelect.value !== activeVoice.id) {
-      presetVoiceSelect.value = activeVoice.id;
-    }
     if (presetVoicePlayer) {
       presetVoicePlayer.src = activeVoice.audio_url;
       presetVoicePlayer.load();
@@ -459,17 +454,17 @@
     if (customReferenceGroup) {
       customReferenceGroup.classList.toggle('hidden', gwenVoiceMode === 'preset');
     }
+    if (presetVoiceSelect) {
+      presetVoiceSelect.disabled = gwenVoiceMode !== 'preset';
+    }
 
     if (gwenVoiceMode === 'preset') {
-      if (!presetVoiceIdInput.value && VOICE_PRESETS[0]) {
-        presetVoiceIdInput.value = VOICE_PRESETS[0].id;
+      if (presetVoiceSelect && !presetVoiceSelect.value && VOICE_PRESETS[0]) {
+        presetVoiceSelect.value = VOICE_PRESETS[0].id;
       }
       renderPresetVoiceDetail();
-    } else if (presetVoiceIdInput) {
-      presetVoiceIdInput.value = '';
-      if (referenceText.dataset.fromPreset === 'true') {
-        referenceText.value = '';
-      }
+    } else if (referenceText.dataset.fromPreset === 'true') {
+      referenceText.value = '';
     }
 
     syncReferenceTextUi();
@@ -946,7 +941,9 @@
     }
     setStudioBusyState(false);
     if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
-      presetVoiceIdInput.value = VOICE_PRESETS[0].id;
+      if (presetVoiceSelect) {
+        presetVoiceSelect.value = VOICE_PRESETS[0].id;
+      }
       setGwenVoiceMode('preset');
     }
   }
@@ -1123,10 +1120,6 @@
   }
   if (presetVoiceSelect) {
     presetVoiceSelect.addEventListener('change', () => {
-      if (!presetVoiceIdInput) {
-        return;
-      }
-      presetVoiceIdInput.value = presetVoiceSelect.value || '';
       renderPresetVoiceDetail();
       syncReferenceTextUi();
     });
@@ -1225,7 +1218,9 @@
   applyHistoryFilter();
   setStudioBusyState(false);
   if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
-    presetVoiceIdInput.value = VOICE_PRESETS[0].id;
+    if (presetVoiceSelect) {
+      presetVoiceSelect.value = VOICE_PRESETS[0].id;
+    }
     setGwenVoiceMode('preset');
   }
 </script>
