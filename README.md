@@ -24,7 +24,7 @@ Nếu gặp lỗi kiểu `Codec 'neuphonic/distill-neucodec' requires PyTorch`, 
 
 - notebook đã chuyển sang stack `torch>=2.11.0`, `torchaudio>=2.11.0` và index CUDA 12.8 (`cu128`) theo hướng upstream của VieNeu
 - notebook cũng uninstall lại bộ `torch/neucodec/vieneu` cũ trước khi cài để tránh lệch binary ABI
-- notebook hiện mặc định `TTS_DEFAULT_ENGINE=vieneu`, `VIENEU_MODE=standard`, và không cài F5 nếu bạn không bật lại thủ công
+- notebook hiện mặc định `TTS_DEFAULT_ENGINE=vieneu`, `VIENEU_MODE=standard`, và vẫn cài cả F5-TTS để bạn đổi engine ngay trên UI
 
 ## Engine setup
 
@@ -42,6 +42,8 @@ python -m pip install -U f5-tts cached_path
 
 Trong Colab notebook của repo này, không nên cài `f5-tts` với `--no-deps`.
 
+App hiện sẽ tự chuẩn hóa reference audio của F5 sang WAV mono 24kHz trước khi infer. Nếu bạn upload `mp3/m4a/ogg`, runtime vẫn cần có `ffmpeg`; còn nếu không có `ffmpeg`, hãy dùng `wav/flac`.
+
 Biến môi trường hỗ trợ:
 
 - `F5_MODEL_NAME`
@@ -49,13 +51,14 @@ Biến môi trường hỗ trợ:
 - `F5_CKPT_FILE`
 - `F5_VOCAB_FILE`
 - `F5_VOCODER_LOCAL_PATH`
-- `TTS_EXPOSE_F5=1` nếu muốn vẫn hiện card F5 trên UI dù engine này chưa sẵn sàng
 
 ### VieNeu-TTS
 
 ```powershell
-python -m pip install -U "vieneu[gpu]==2.4.3"
+python -m pip install -U vieneu==2.4.3
 ```
+
+Nếu bạn cần chạy `standard/fast` trên Colab, hãy dùng cell install mới của notebook. `pip install vieneu[gpu]` thường fail vì pip không tự resolve các wheel GPU mà upstream map qua `uv` sources.
 
 Biến môi trường hỗ trợ:
 

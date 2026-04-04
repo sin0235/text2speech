@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+import soundfile as sf
 
 from webapp.tts_service import (
     EngineCard,
@@ -107,7 +108,7 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertEqual(service.default_engine, "vieneu")
         self.assertEqual(service.vieneu_mode, "standard")
 
-    def test_offline_f5_is_hidden_by_default(self) -> None:
+    def test_offline_f5_is_still_shown_by_default(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             with tempfile.TemporaryDirectory() as tmpdir:
                 service = TTSStudioService(Path(tmpdir))
@@ -115,7 +116,7 @@ class TTSServiceHelperTest(unittest.TestCase):
 
                 cards = service.get_engine_cards()
 
-        self.assertEqual([card.id for card in cards], ["vieneu"])
+        self.assertEqual([card.id for card in cards], ["vieneu", "f5"])
 
     def test_vieneu_standard_card_is_not_ready_on_old_torch(self) -> None:
         with patch.dict(os.environ, {"VIENEU_MODE": "standard"}, clear=True):
@@ -158,6 +159,36 @@ class TTSServiceHelperTest(unittest.TestCase):
                     )
 
         self.assertIn("transcript tham chiếu", str(exc_info.exception))
+
+    def test_prepare_reference_audio_for_f5_normalizes_wav(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+                reference_audio = Path(tmpdir) / "reference.wav"
+                wave = np.linspace(-0.2, 0.2, 24000, dtype=np.float32)
+                sf.write(reference_audio, wave, 24000)
+
+                prepared_path, duration_seconds, notes = service._prepare_reference_audio_for_f5(reference_audio)
+                prepared_exists = prepared_path.exists()
+                prepared_name = prepared_path.name
+
+        self.assertTrue(prepared_exists)
+        self.assertTrue(prepared_name.endswith("-f5-24k.wav"))
+        self.assertGreater(duration_seconds, 0.9)
+        self.assertTrue(any("WAV mono 24kHz" in note for note in notes))
+
+    def test_prepare_reference_audio_for_f5_requires_ffmpeg_for_compressed_input(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+                reference_audio = Path(tmpdir) / "reference.m4a"
+                reference_audio.write_bytes(b"fake")
+
+                with patch("webapp.tts_service.shutil.which", return_value=None):
+                    with self.assertRaises(TTSError) as exc_info:
+                        service._prepare_reference_audio_for_f5(reference_audio)
+
+        self.assertIn("cần `ffmpeg`", str(exc_info.exception))
 
 
 if __name__ == "__main__":

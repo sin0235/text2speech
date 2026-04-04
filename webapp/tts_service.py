@@ -4,6 +4,8 @@ import importlib
 import importlib.util
 import os
 import re
+import shutil
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -118,7 +120,9 @@ def _format_vieneu_import_error(exc: Exception) -> str:
         package_name = _map_import_name_to_package(missing_module)
         return (
             f"VieNeu-TTS đã được cài nhưng thiếu dependency `{missing_module}`. "
-            f"Hãy chạy `python -m pip install -U \"vieneu[gpu]\" {package_name}` rồi khởi động lại ứng dụng."
+            f"Hãy chạy `python -m pip install -U vieneu==2.4.3 {package_name}` rồi khởi động lại ứng dụng. "
+            "Nếu đang dùng notebook Colab của repo này, hãy rerun cell cài dependencies mới "
+            "vì `pip install vieneu[gpu]` không tự resolve đủ wheel GPU upstream."
         )
     return f"Không thể import VieNeu-TTS: {exc}"
 
@@ -384,6 +388,14 @@ def _normalize_reference_wave(audio_np: np.ndarray, target_peak: float = 0.92) -
     return np.clip(normalized * float(target_peak), -1.0, 1.0).astype(np.float32)
 
 
+def _summarize_subprocess_error(exc: Exception) -> str:
+    stderr = getattr(exc, "stderr", None)
+    stdout = getattr(exc, "stdout", None)
+    raw = stderr or stdout or str(exc)
+    normalized = re.sub(r"\s+", " ", str(raw or "")).strip()
+    return normalized[:280] or str(exc)
+
+
 def _load_audio_mono_float(path: Path, target_sr: int) -> tuple[np.ndarray, int]:
     try:
         audio, sr = sf.read(path, always_2d=False)
@@ -542,7 +554,6 @@ class TTSStudioService:
         self.default_engine = _normalize_engine_id(os.getenv("TTS_DEFAULT_ENGINE", "vieneu"))
         self.vieneu_mode = (os.getenv("VIENEU_MODE", "standard") or "standard").strip().lower() or "standard"
         self.vieneu_mode_choices = os.getenv("VIENEU_MODE_CHOICES", "").strip()
-        self.expose_f5 = _env_flag("TTS_EXPOSE_F5", default=False)
 
         self.f5_model_name = os.getenv("F5_MODEL_NAME", "F5TTS_v1_Base")
         self.f5_ckpt_file = os.getenv("F5_CKPT_FILE", "").strip()
@@ -783,11 +794,10 @@ class TTSStudioService:
         }
 
     def get_engine_cards(self) -> list[EngineCard]:
-        cards = [self._vieneu_card()]
-        f5_card = self._f5_card()
-        if f5_card.ready or self.expose_f5:
-            cards.append(f5_card)
-        return cards
+        return [
+            self._vieneu_card(),
+            self._f5_card(),
+        ]
 
     def get_engine_card(self, engine_id: str) -> EngineCard:
         engine = _normalize_engine_id(engine_id)
@@ -882,6 +892,61 @@ class TTSStudioService:
         sf.write(prepared_path, audio_np, target_sr)
         prep_stats["activity_ratio_after_trim"] = activity_after_trim
         return prepared_path, duration_seconds, prep_stats
+
+    def _prepare_reference_audio_for_f5(self, reference_audio: Path) -> tuple[Path, float, list[str]]:
+        target_sr = 24000
+        prepared_path = self.reference_dir / f"{reference_audio.stem}-f5-24k.wav"
+        suffix = reference_audio.suffix.lower()
+        notes: list[str] = []
+        compressed_suffixes = {".mp3", ".m4a", ".ogg", ".aac", ".wma", ".webm", ".mp4"}
+
+        if suffix in compressed_suffixes:
+            ffmpeg_bin = shutil.which("ffmpeg")
+            if not ffmpeg_bin:
+                raise TTSError(
+                    "F5-TTS cần `ffmpeg` để đọc audio tham chiếu dạng MP3/M4A/OGG. "
+                    "Hãy cài `ffmpeg` hoặc đổi file tham chiếu sang WAV/FLAC rồi thử lại."
+                )
+            try:
+                subprocess.run(
+                    [
+                        ffmpeg_bin,
+                        "-y",
+                        "-i",
+                        str(reference_audio),
+                        "-ac",
+                        "1",
+                        "-ar",
+                        str(target_sr),
+                        "-c:a",
+                        "pcm_s16le",
+                        str(prepared_path),
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except Exception as exc:
+                raise TTSError(
+                    "Không thể convert audio tham chiếu sang WAV cho F5-TTS bằng ffmpeg: "
+                    f"{_summarize_subprocess_error(exc)}"
+                ) from exc
+            audio_np, _ = _load_audio_mono_float(prepared_path, target_sr=target_sr)
+            sf.write(prepared_path, audio_np, target_sr, subtype="PCM_16")
+            notes.append("Đã tự convert audio tham chiếu sang WAV 24kHz trước khi gọi F5-TTS để tránh lỗi codec.")
+        else:
+            audio_np, _ = _load_audio_mono_float(reference_audio, target_sr=target_sr)
+            sf.write(prepared_path, audio_np, target_sr, subtype="PCM_16")
+            notes.append("Đã chuẩn hóa audio tham chiếu về WAV mono 24kHz trước khi gọi F5-TTS.")
+
+        duration_seconds = float(len(audio_np) / target_sr)
+        if duration_seconds < 1.0:
+            raise TTSError("Audio tham chiếu quá ngắn cho F5-TTS. Hãy dùng đoạn nói rõ dài tối thiểu khoảng 1 giây.")
+        if duration_seconds > 20.0:
+            notes.append("Audio tham chiếu cho F5-TTS hơi dài; tốt nhất nên giữ khoảng 3-12 giây để clone giọng ổn định hơn.")
+
+        return prepared_path, duration_seconds, notes
 
     def _f5_card(self) -> EngineCard:
         module_ok, import_warning = self._probe_f5_import()
@@ -1084,7 +1149,8 @@ class TTSStudioService:
         output_path: Path,
     ) -> SynthesisResult:
         f5 = self._load_f5(model_spec)
-        notes: list[str] = []
+        prepared_reference_audio, ref_duration, prep_notes = self._prepare_reference_audio_for_f5(reference_audio)
+        notes: list[str] = list(prep_notes)
         chunks = _split_text_for_tts(text, max_chars=220)
         chunk_waves: list[np.ndarray] = []
         sample_rate = None
@@ -1094,7 +1160,7 @@ class TTSStudioService:
             chunk_seed = None if seed is None else seed + index
             try:
                 wav, sr, _ = f5.infer(
-                    ref_file=str(reference_audio),
+                    ref_file=str(prepared_reference_audio),
                     ref_text=reference_text,
                     gen_text=chunk,
                     speed=float(speed),
@@ -1125,6 +1191,7 @@ class TTSStudioService:
 
         elapsed = time.perf_counter() - started
         duration = len(combined) / float(sample_rate or 24000)
+        notes.append(f"Audio tham chiếu F5 sau chuẩn hóa dài khoảng {ref_duration:.2f}s.")
         if len(chunks) > 1:
             notes.append(f"Văn bản được tách thành {len(chunks)} chunk để giữ inference ổn định hơn.")
         if reference_text:
