@@ -527,6 +527,11 @@ main {
   background: linear-gradient(180deg, rgba(239, 246, 255, 0.8), rgba(255, 255, 255, 0.96));
 }
 
+.preset-voice-select {
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .preset-voice-detail-head {
   display: flex;
   align-items: center;
@@ -577,8 +582,8 @@ main {
 .advanced-settings-summary {
   list-style: none;
   cursor: pointer;
-  padding: 18px 20px;
-  font-size: 15px;
+  padding: 14px 16px;
+  font-size: 14px;
   font-weight: 800;
   color: var(--text);
   display: flex;
@@ -602,7 +607,7 @@ main {
 }
 
 .advanced-settings-body {
-  padding: 0 20px 20px;
+  padding: 0 16px 16px;
   display: grid;
   gap: 16px;
   border-top: 1px solid rgba(219, 231, 245, 0.9);
@@ -796,15 +801,15 @@ main {
 }
 
 .upload-title {
-  margin-top: 14px;
-  font-size: 16px;
+  margin-top: 0;
+  font-size: 14px;
   font-weight: 700;
 }
 
 .upload-subtitle,
 .upload-file {
   margin-top: 8px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -833,7 +838,7 @@ main {
 .control-card label {
   display: block;
   margin-bottom: 10px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
 }
 
@@ -847,13 +852,13 @@ main {
   align-items: center;
   justify-content: space-between;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--muted);
 }
 
 .range-meta strong {
   color: var(--primary);
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .toggle-group {
@@ -867,7 +872,7 @@ main {
   gap: 12px;
   cursor: pointer;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -1104,15 +1109,15 @@ main {
 }
 
 .result-engine {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 800;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.03em;
 }
 
 .result-file {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .wave-demo {
@@ -1321,9 +1326,9 @@ main {
 }
 
 .tts-workbench-copy h1 {
-  font-size: clamp(28px, 4vw, 40px);
-  line-height: 1.05;
-  letter-spacing: -0.06em;
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.12;
+  letter-spacing: -0.04em;
   color: #1f2937;
 }
 
@@ -1344,13 +1349,13 @@ main {
 .tts-top-pill {
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
-  padding: 0 15px;
+  min-height: 34px;
+  padding: 0 12px;
   border-radius: 999px;
   border: 1px solid rgba(196, 181, 253, 0.6);
   background: rgba(255, 255, 255, 0.9);
   color: var(--studio-accent-strong);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1401,8 +1406,8 @@ main {
   background: transparent;
   color: #1e293b;
   font-family: inherit;
-  font-size: clamp(19px, 1.8vw, 21px);
-  line-height: 1.62;
+  font-size: clamp(16px, 1.4vw, 18px);
+  line-height: 1.55;
 }
 
 .tts-editor-input:focus {
@@ -1444,13 +1449,13 @@ main {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 46px;
-  padding: 0 16px;
+  min-height: 40px;
+  padding: 0 14px;
   border-radius: 999px;
   border: 1px solid rgba(203, 213, 225, 0.7);
   background: #fff;
   color: #334155;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   box-shadow: 0 10px 18px rgba(148, 163, 184, 0.08);
 }
@@ -1481,39 +1486,39 @@ main {
 }
 
 .tts-stop-btn {
-  min-height: 46px;
-  border-radius: 18px;
-  padding: 0 18px;
+  min-height: 40px;
+  border-radius: 14px;
+  padding: 0 16px;
 }
 
 .tts-engine-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
+  min-height: 30px;
   padding: 0 12px;
   border-radius: 999px;
   background: rgba(139, 92, 246, 0.08);
   color: var(--studio-accent-strong);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
 }
 
 .tts-editor-count {
-  min-width: 92px;
+  min-width: 80px;
   text-align: right;
   color: #475569;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .tts-ghost-btn,
 .tts-submit-btn {
-  min-height: 48px;
+  min-height: 42px;
   border: none;
   border-radius: 999px;
   padding: 0 20px;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
@@ -1551,16 +1556,16 @@ main {
 }
 
 .tts-output-empty {
-  min-height: 132px;
+  min-height: 108px;
   display: grid;
   place-items: center;
-  padding: 28px 22px;
+  padding: 22px 18px;
   border-radius: 24px;
   border: 1px dashed rgba(196, 181, 253, 0.76);
   background: linear-gradient(180deg, rgba(250, 245, 255, 0.94), rgba(255, 255, 255, 0.98));
   color: #94a3b8;
   text-align: center;
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .tts-output-ready {
@@ -1583,8 +1588,8 @@ main {
 }
 
 .tts-player-button {
-  width: 60px;
-  height: 60px;
+  width: 52px;
+  height: 52px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1597,8 +1602,8 @@ main {
 }
 
 .tts-player-button svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .tts-player-track-wrap {
@@ -1615,23 +1620,23 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 44px;
-  padding: 0 14px;
+  min-height: 40px;
+  padding: 0 12px;
   border-radius: 999px;
   background: #faf7ff;
   color: #0f172a;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   white-space: nowrap;
 }
 
 .tts-player-icon {
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 18px;
+  border-radius: 14px;
   border: 1px solid rgba(196, 181, 253, 0.5);
   background: #fff;
   color: #8b5cf6;
@@ -1654,9 +1659,9 @@ main {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.92);
   color: var(--studio-accent-strong);
-  padding: 10px 14px;
+  padding: 9px 12px;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -1675,7 +1680,7 @@ main {
   flex-direction: column;
   min-height: 760px;
   max-height: calc(100vh - 118px);
-  padding: 14px;
+  padding: 12px;
   border-radius: 28px;
   border: 1px solid rgba(236, 231, 251, 0.96);
   background: linear-gradient(180deg, rgba(250, 250, 253, 0.98), rgba(246, 245, 252, 0.98));
@@ -1693,13 +1698,13 @@ main {
 
 .tts-sidebar-tab {
   position: relative;
-  min-height: 54px;
+  min-height: 46px;
   border: none;
   border-radius: 0;
   background: transparent;
   color: #a1a1aa;
   font-family: inherit;
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 800;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1785,15 +1790,15 @@ main {
 
 .tts-side-card {
   display: grid;
-  gap: 14px;
-  padding: 16px;
+  gap: 12px;
+  padding: 14px;
   border-radius: 24px;
   border: 1px solid rgba(236, 231, 251, 0.96);
   background: #fff;
 }
 
 .tts-side-card-title {
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 900;
   color: #111827;
 }
@@ -1816,14 +1821,14 @@ main {
 
 .tts-side-input,
 .tts-side-card .form-control {
-  min-height: 52px;
-  border-radius: 18px;
+  min-height: 46px;
+  border-radius: 16px;
   border-color: rgba(226, 232, 240, 0.92);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .tts-side-card textarea.form-control {
-  min-height: 120px;
+  min-height: 96px;
 }
 
 .studio-toggle-full {
@@ -1841,23 +1846,13 @@ main {
 }
 
 .preset-voice-detail-compact {
-  padding: 14px;
-  border-radius: 22px;
-}
-
-.preset-voice-grid-compact {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.preset-voice-card-compact {
-  align-items: flex-start;
-  padding: 14px 12px;
   border-radius: 18px;
+  padding: 12px;
 }
 
 .compact-upload-box {
-  min-height: 132px;
-  border-radius: 22px;
+  min-height: 104px;
+  border-radius: 18px;
 }
 
 .compact-reference-box {
@@ -1865,11 +1860,11 @@ main {
 }
 
 .result-engine {
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .result-file {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .history-list {
@@ -1913,7 +1908,7 @@ main {
   padding: 0 12px 0 38px;
   color: #111827;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .tts-history-search input:focus {
@@ -2230,7 +2225,7 @@ footer {
 
 .loading-text {
   margin-top: 24px;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
   letter-spacing: 0.02em;
   line-height: 1.5;
@@ -2361,8 +2356,7 @@ footer {
     width: 100%;
   }
 
-  .tts-output-stats,
-  .preset-voice-grid-compact {
+  .tts-output-stats {
     grid-template-columns: 1fr;
   }
 

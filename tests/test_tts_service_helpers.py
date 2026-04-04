@@ -130,6 +130,23 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertIn("thành phố hồ chí minh", normalized)
         self.assertEqual(len(notes), 2)
 
+    def test_normalize_gwen_text_reads_numeric_dates_in_vietnamese(self) -> None:
+        normalized, notes = _normalize_gwen_text(
+            "Hẹn ngày 04/04/2026. Sinh 01.02.2003. Mốc 1-2-2025. Báo cáo tháng 04/2026. ISO 2026-04-04."
+        )
+
+        self.assertIn("Hẹn ngày bốn tháng bốn năm hai nghìn không trăm hai mươi sáu.", normalized)
+        self.assertIn("Sinh ngày một tháng hai năm hai nghìn không trăm linh ba.", normalized)
+        self.assertIn("Mốc ngày một tháng hai năm hai nghìn không trăm hai mươi lăm.", normalized)
+        self.assertIn("Báo cáo tháng bốn năm hai nghìn không trăm hai mươi sáu.", normalized)
+        self.assertIn("ISO ngày bốn tháng bốn năm hai nghìn không trăm hai mươi sáu.", normalized)
+        self.assertNotIn("ngày ngày", normalized)
+        self.assertNotIn("tháng tháng", normalized)
+        self.assertEqual(
+            notes,
+            ["Đã chuẩn hóa ngày tháng năm viết bằng số sang cách đọc tiếng Việt tự nhiên hơn."],
+        )
+
     def test_format_f5_import_error_mentions_reinstall_hint(self) -> None:
         exc = ModuleNotFoundError("No module named 'cached_path'", name="cached_path")
 

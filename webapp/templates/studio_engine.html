@@ -5,7 +5,6 @@
   <div class="tts-workbench-head">
     <div class="tts-workbench-copy">
       <h1>Chuyển Văn Bản Thành Giọng Nói</h1>
-      <p>{{ engine_card.headline }}</p>
     </div>
 
     <div class="tts-workbench-pills">
@@ -53,7 +52,7 @@
 
       <div class="tts-output-card">
         <div id="resultState" class="tts-output-empty">
-          Chưa có audio nào được sinh. Kết quả sẽ hiện ở đây ngay sau khi chạy xong.
+          Chưa có audio.
         </div>
 
         <div id="resultCard" class="tts-output-ready hidden">
@@ -118,14 +117,6 @@
 
         <div class="tts-sidebar-panel active" id="settingsPanel">
           <div class="tts-sidebar-scroll">
-            <div class="tts-side-banner">
-          <div class="tts-side-banner-mark">{{ engine_card.label[:2] }}</div>
-          <div>
-            <div class="tts-side-banner-title">{{ engine_card.label }}</div>
-            <div class="tts-side-banner-copy">{{ engine_card.summary }}</div>
-          </div>
-        </div>
-
         <section class="tts-side-card">
           <div class="tts-side-card-title">Mô Hình AI</div>
           <select id="modelSelect" name="model_key" class="form-control tts-side-input"></select>
@@ -138,10 +129,6 @@
             autocomplete="off"
             disabled
           />
-          <div class="tts-inline-hint">
-            <span id="modelHintPrimary">{{ model_selection.help_primary }}</span>
-            <span id="modelHintSecondary">{{ model_selection.help_secondary }}</span>
-          </div>
         </section>
 
         <section class="tts-side-card">
@@ -154,39 +141,14 @@
           </div>
 
           <div id="presetVoiceSection" class="preset-voice-section preset-voice-section-compact">
-            <div class="preset-voice-detail preset-voice-detail-compact" id="presetVoiceDetail">
-              <div class="preset-voice-detail-head">
-                <div class="preset-voice-detail-id" id="presetVoiceAvatar"></div>
-                <div>
-                  <div class="preset-voice-detail-name" id="presetVoiceName"></div>
-                  <div class="preset-voice-detail-style" id="presetVoiceStyle"></div>
-                </div>
-              </div>
-              <audio id="presetVoicePlayer" controls class="player compact-player"></audio>
-              <div class="voice-tip-box subtle-tip-box compact-reference-box">
-                <div class="voice-tip-title">Transcript preset</div>
-                <div class="voice-tip-text" id="presetVoiceReferenceText"></div>
-              </div>
-            </div>
-
-            <div class="preset-voice-grid preset-voice-grid-compact">
+            <select id="presetVoiceSelect" class="form-control tts-side-input preset-voice-select">
               {% for voice in preset_voices_payload %}
-              <button
-                type="button"
-                class="preset-voice-card preset-voice-card-compact{% if loop.first %} active{% endif %}"
-                data-voice-id="{{ voice.id }}"
-              >
-                <span class="preset-voice-avatar">{{ voice.avatar }}</span>
-                <span class="preset-voice-name">{{ voice.name }}</span>
-                <span class="preset-voice-style">{{ voice.style }}</span>
-              </button>
+              <option value="{{ voice.id }}">{{ voice.name }}{% if voice.style %} · {{ voice.style }}{% endif %}</option>
               {% endfor %}
+            </select>
+            <div class="preset-voice-detail preset-voice-detail-compact">
+              <audio id="presetVoicePlayer" controls class="player compact-player"></audio>
             </div>
-          </div>
-          {% else %}
-          <div class="voice-tip-box subtle-tip-box compact-reference-box">
-            <div class="voice-tip-title">Voice Clone</div>
-            <div class="voice-tip-text">{{ engine_card.recommended_for }}</div>
           </div>
           {% endif %}
 
@@ -194,13 +156,9 @@
             <label for="referenceAudio">Audio tham chiếu</label>
             <label class="upload-box compact-upload-box" for="referenceAudio">
               <input id="referenceAudio" name="reference_audio" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*" />
-              <div class="upload-title">Chọn file audio mẫu</div>
-              <div class="upload-subtitle">WAV, MP3, FLAC, M4A, OGG. Tối đa {{ max_upload_mb }} MB.</div>
+              <div class="upload-title">Chọn file audio</div>
               <div class="upload-file" id="uploadFileLabel">Chưa có file nào được chọn</div>
             </label>
-            <div class="tts-inline-hint">
-              <span>{{ engine_card.reference_hint }}</span>
-            </div>
           </div>
 
           <div class="form-group tts-side-form-group">
@@ -212,18 +170,6 @@
               class="form-control"
               placeholder="Nhập đúng câu đang có trong audio tham chiếu nếu engine hiện tại yêu cầu transcript."
             ></textarea>
-            <div class="tts-inline-hint">
-              <span id="referenceHintPrimary">
-                {% if engine_card.id == "gwen" %}
-                Bắt buộc với Gwen-TTS
-                {% elif engine_card.supports_reference_text %}
-                Bắt buộc với mode hiện tại
-                {% else %}
-                Khuyến nghị nhưng không bắt buộc
-                {% endif %}
-              </span>
-              <span id="referenceHintSecondary">Nhập nguyên câu trong audio mẫu để giữ clone giọng ổn định.</span>
-            </div>
           </div>
         </section>
 
@@ -311,11 +257,6 @@
         <details class="advanced-settings-card" open>
           <summary class="advanced-settings-summary">Cài Đặt Phát Âm</summary>
           <div class="advanced-settings-body">
-            <div class="voice-tip-box subtle-tip-box pronunciation-helper-box">
-              <div class="voice-tip-title">Chữ -> cách đọc</div>
-              <div class="voice-tip-text">Mỗi dòng là một quy tắc thay chữ trước khi Gwen-TTS synthesize. Ví dụ: `AI` -> `ây ai`.</div>
-            </div>
-
             <div id="pronunciationRules" class="pronunciation-rule-list"></div>
 
             <div class="form-actions pronunciation-actions">
@@ -349,13 +290,6 @@
             <div class="control-card">
               <label for="seedInput">Seed</label>
               <input id="seedInput" name="seed" class="form-control compact-input" type="number" min="0" placeholder="Tùy chọn" />
-              <div class="field-meta single-line">
-                {% if engine_card.id == "f5" %}
-                F5 có thể dùng seed để lặp lại kết quả gần giống.
-                {% else %}
-                Trường này chủ yếu có tác dụng với F5.
-                {% endif %}
-              </div>
             </div>
           </div>
 
@@ -374,28 +308,10 @@
         </section>
         {% endif %}
 
-        {% if engine_card.metadata %}
-        <section class="tts-side-card">
-          <div class="tts-side-card-title">Metadata</div>
-          <div class="engine-metadata">
-            {% for key, value in engine_card.metadata.items() %}
-            {% if key != "model_selection" %}
-            <div class="metadata-line">
-              <span>{{ key }}</span>
-              <strong>{{ value }}</strong>
-            </div>
-            {% endif %}
-            {% endfor %}
-          </div>
-        </section>
-        {% endif %}
-
-        {% if engine_card.warning %}
+        {% if engine_card.warning and not engine_card.ready %}
         <section class="tts-side-card">
           <div class="tts-side-card-title">Lưu Ý Runtime</div>
-          <div class="voice-tip-box subtle-tip-box compact-reference-box">
-            <div class="voice-tip-text">{{ engine_card.warning }}</div>
-          </div>
+          <div class="field-meta single-line">{{ engine_card.warning }}</div>
         </section>
         {% endif %}
           </div>
@@ -412,12 +328,11 @@
                 </svg>
                 <input id="historySearchInput" type="search" placeholder="Tìm kiếm audio..." />
               </label>
-              <div class="tts-history-note">Audio sinh trong phiên này sẽ hiện ở đây để nghe lại nhanh.</div>
             </section>
 
             <section class="tts-side-card tts-history-board">
               <div id="historyList" class="history-list">
-                <div class="empty-state small">Các lượt generate mới sẽ hiện ở đây.</div>
+                <div class="empty-state small">Chưa có lịch sử.</div>
               </div>
             </section>
           </div>
@@ -431,7 +346,6 @@
   <div class="loading-content">
     <div class="loading-spinner"></div>
     <div class="loading-text">Đang sinh giọng nói</div>
-    <div class="loading-subtext">Đang xử lý audio mẫu và render kết quả.</div>
   </div>
 </div>
 
@@ -451,22 +365,14 @@
   const speedValue = document.getElementById('speedValue');
   const referenceAudio = document.getElementById('referenceAudio');
   const referenceText = document.getElementById('referenceText');
-  const referenceHintPrimary = document.getElementById('referenceHintPrimary');
-  const referenceHintSecondary = document.getElementById('referenceHintSecondary');
   const uploadFileLabel = document.getElementById('uploadFileLabel');
   const modelSelect = document.getElementById('modelSelect');
   const customModelInput = document.getElementById('customModelInput');
-  const modelHintPrimary = document.getElementById('modelHintPrimary');
-  const modelHintSecondary = document.getElementById('modelHintSecondary');
   const presetVoiceIdInput = document.getElementById('presetVoiceId');
   const presetModeBtn = document.getElementById('presetModeBtn');
   const customModeBtn = document.getElementById('customModeBtn');
   const presetVoiceSection = document.getElementById('presetVoiceSection');
-  const presetVoiceCards = Array.from(document.querySelectorAll('.preset-voice-card'));
-  const presetVoiceAvatar = document.getElementById('presetVoiceAvatar');
-  const presetVoiceName = document.getElementById('presetVoiceName');
-  const presetVoiceStyle = document.getElementById('presetVoiceStyle');
-  const presetVoiceReferenceText = document.getElementById('presetVoiceReferenceText');
+  const presetVoiceSelect = document.getElementById('presetVoiceSelect');
   const presetVoicePlayer = document.getElementById('presetVoicePlayer');
   const customReferenceGroup = document.getElementById('customReferenceGroup');
   const gwenTemperature = document.getElementById('gwenTemperature');
@@ -507,7 +413,6 @@
   const historyList = document.getElementById('historyList');
   const loadingOverlay = document.getElementById('loadingOverlay');
   const loadingText = loadingOverlay ? loadingOverlay.querySelector('.loading-text') : null;
-  const loadingSubtext = loadingOverlay ? loadingOverlay.querySelector('.loading-subtext') : null;
   let activeRequestController = null;
   let lastSubmissionText = '';
   let gwenVoiceMode = ENGINE_ID === 'gwen' && VOICE_PRESETS.length ? 'preset' : 'custom';
@@ -525,20 +430,17 @@
 
   function renderPresetVoiceDetail() {
     const activeVoice = getActivePresetVoice();
-    if (!activeVoice || !presetVoiceAvatar) {
+    if (!activeVoice) {
       return;
     }
 
-    presetVoiceAvatar.textContent = activeVoice.avatar;
-    presetVoiceName.textContent = activeVoice.name;
-    presetVoiceStyle.textContent = activeVoice.style;
-    presetVoiceReferenceText.textContent = activeVoice.reference_text;
-    presetVoicePlayer.src = activeVoice.audio_url;
-    presetVoicePlayer.load();
-
-    presetVoiceCards.forEach((button) => {
-      button.classList.toggle('active', button.dataset.voiceId === activeVoice.id);
-    });
+    if (presetVoiceSelect && presetVoiceSelect.value !== activeVoice.id) {
+      presetVoiceSelect.value = activeVoice.id;
+    }
+    if (presetVoicePlayer) {
+      presetVoicePlayer.src = activeVoice.audio_url;
+      presetVoicePlayer.load();
+    }
   }
 
   function setGwenVoiceMode(mode) {
@@ -613,8 +515,6 @@
         referenceText.dataset.fromPreset = 'true';
         referenceText.readOnly = true;
         referenceText.placeholder = 'Preset voice dùng transcript gốc của model.';
-        referenceHintPrimary.textContent = 'Đang dùng transcript chính thức của preset';
-        referenceHintSecondary.textContent = 'Muốn đổi transcript hoặc audio mẫu thì chuyển sang Clone từ audio riêng.';
       } else {
         if (referenceText.dataset.fromPreset === 'true') {
           referenceText.value = '';
@@ -622,25 +522,15 @@
         referenceText.dataset.fromPreset = 'false';
         referenceText.readOnly = false;
         referenceText.placeholder = 'Gwen-TTS luôn cần transcript đúng với câu đang có trong audio tham chiếu.';
-        referenceHintPrimary.textContent = 'Bắt buộc với Gwen-TTS';
-        referenceHintSecondary.textContent = 'Nhập nguyên câu trong audio mẫu để Gwen dựng voice clone prompt ổn định.';
       }
     } else if (ENGINE_ID === 'vieneu') {
       referenceText.readOnly = false;
       referenceText.placeholder = requiresTranscript
         ? 'VieNeu Standard/Fast cần transcript đúng với câu đang có trong audio tham chiếu.'
         : 'Có thể nhập transcript để lưu đối chiếu, nhưng mode VieNeu hiện tại không bắt buộc.';
-      referenceHintPrimary.textContent = requiresTranscript
-        ? 'Bắt buộc với VieNeu Standard/Fast'
-        : 'Không bắt buộc với VieNeu Turbo';
-      referenceHintSecondary.textContent = requiresTranscript
-        ? 'Nhập nguyên câu có trong audio mẫu để VieNeu bám giọng và phát âm chính xác hơn.'
-        : 'Nếu vẫn nhập transcript, hệ thống chỉ giữ lại để bạn đối chiếu.';
     } else {
       referenceText.readOnly = false;
       referenceText.placeholder = 'Nếu audio tham chiếu có lời nói rõ, nhập nguyên câu đó để F5-TTS giữ giọng ổn định hơn.';
-      referenceHintPrimary.textContent = 'Khuyến nghị với F5-TTS';
-      referenceHintSecondary.textContent = 'F5 không bắt buộc transcript, nhưng có transcript sẽ giữ giọng ổn định hơn.';
     }
 
     referenceText.required = requiresTranscript;
@@ -657,8 +547,6 @@
       customModelInput.value = '';
     }
 
-    modelHintPrimary.textContent = MODEL_SELECTION.help_primary || 'Chọn model theo engine đang bật.';
-    modelHintSecondary.textContent = MODEL_SELECTION.help_secondary || '';
     syncReferenceTextUi();
   }
 
@@ -872,9 +760,6 @@
     }
     if (loadingText && title) {
       loadingText.textContent = title;
-    }
-    if (loadingSubtext && subtitle) {
-      loadingSubtext.textContent = subtitle;
     }
   }
 
@@ -1236,16 +1121,16 @@
     presetModeBtn.addEventListener('click', () => setGwenVoiceMode('preset'));
     customModeBtn.addEventListener('click', () => setGwenVoiceMode('custom'));
   }
-  presetVoiceCards.forEach((button) => {
-    button.addEventListener('click', () => {
+  if (presetVoiceSelect) {
+    presetVoiceSelect.addEventListener('change', () => {
       if (!presetVoiceIdInput) {
         return;
       }
-      presetVoiceIdInput.value = button.dataset.voiceId || '';
+      presetVoiceIdInput.value = presetVoiceSelect.value || '';
       renderPresetVoiceDetail();
       syncReferenceTextUi();
     });
-  });
+  }
   referenceAudio.addEventListener('change', function () {
     const file = this.files && this.files[0];
     uploadFileLabel.textContent = file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : 'Chưa có file nào được chọn';

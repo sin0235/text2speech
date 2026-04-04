@@ -11,6 +11,7 @@ import time
 import unicodedata
 import uuid
 from dataclasses import dataclass, field
+from datetime import date as calendar_date
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -235,6 +236,37 @@ _GWEN_NUMBER_TOKEN_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_GWEN_DMY_DATE_PATTERN = re.compile(
+    r"(?<![\w])"
+    r"(?P<day>0?[1-9]|[12]\d|3[01])"
+    r"\s*(?P<sep>[./-])\s*"
+    r"(?P<month>0?[1-9]|1[0-2])"
+    r"\s*(?P=sep)\s*"
+    r"(?P<year>\d{4})"
+    r"(?![\w])",
+    flags=re.IGNORECASE,
+)
+
+_GWEN_YMD_DATE_PATTERN = re.compile(
+    r"(?<![\w])"
+    r"(?P<year>\d{4})"
+    r"\s*(?P<sep>[./-])\s*"
+    r"(?P<month>0?[1-9]|1[0-2])"
+    r"\s*(?P=sep)\s*"
+    r"(?P<day>0?[1-9]|[12]\d|3[01])"
+    r"(?![\w])",
+    flags=re.IGNORECASE,
+)
+
+_GWEN_MONTH_YEAR_PATTERN = re.compile(
+    r"(?<![\w])"
+    r"(?P<month>0?[1-9]|1[0-2])"
+    r"\s*(?P<sep>[./-])\s*"
+    r"(?P<year>\d{4})"
+    r"(?![\w])",
+    flags=re.IGNORECASE,
+)
+
 
 def _read_vietnamese_triplet(number: int, *, force_hundreds: bool = False) -> str:
     if number <= 0:
@@ -345,6 +377,81 @@ def _number_to_vietnamese_text(raw_number: str) -> str | None:
     return spoken
 
 
+def _context_ends_with_keyword(text: str, end_index: int, keyword: str) -> bool:
+    return re.search(rf"\b{re.escape(keyword)}\s*$", text[:end_index], flags=re.IGNORECASE) is not None
+
+
+def _format_vietnamese_date(day: int, month: int, year: int, *, include_day_prefix: bool = True) -> str:
+    day_text = _integer_to_vietnamese(day)
+    month_text = _integer_to_vietnamese(month)
+    year_text = _integer_to_vietnamese(year)
+    if include_day_prefix:
+        return f"ngày {day_text} tháng {month_text} năm {year_text}"
+    return f"{day_text} tháng {month_text} năm {year_text}"
+
+
+def _format_vietnamese_month_year(month: int, year: int, *, include_month_prefix: bool = True) -> str:
+    month_text = _integer_to_vietnamese(month)
+    year_text = _integer_to_vietnamese(year)
+    if include_month_prefix:
+        return f"tháng {month_text} năm {year_text}"
+    return f"{month_text} năm {year_text}"
+
+
+def _normalize_gwen_date_tokens(text: str) -> tuple[str, int]:
+    normalized = text
+    date_hits = 0
+
+    def replace_dmy(match: re.Match[str]) -> str:
+        nonlocal date_hits
+        day = int(match.group("day"))
+        month = int(match.group("month"))
+        year = int(match.group("year"))
+        try:
+            calendar_date(year, month, day)
+        except ValueError:
+            return match.group(0)
+        date_hits += 1
+        include_day_prefix = not (
+            _context_ends_with_keyword(normalized, match.start(), "ngày")
+            or _context_ends_with_keyword(normalized, match.start(), "mùng")
+        )
+        return _format_vietnamese_date(day, month, year, include_day_prefix=include_day_prefix)
+
+    normalized = _GWEN_DMY_DATE_PATTERN.sub(replace_dmy, normalized)
+
+    def replace_ymd(match: re.Match[str]) -> str:
+        nonlocal date_hits
+        year = int(match.group("year"))
+        month = int(match.group("month"))
+        day = int(match.group("day"))
+        try:
+            calendar_date(year, month, day)
+        except ValueError:
+            return match.group(0)
+        date_hits += 1
+        include_day_prefix = not (
+            _context_ends_with_keyword(normalized, match.start(), "ngày")
+            or _context_ends_with_keyword(normalized, match.start(), "mùng")
+        )
+        return _format_vietnamese_date(day, month, year, include_day_prefix=include_day_prefix)
+
+    normalized = _GWEN_YMD_DATE_PATTERN.sub(replace_ymd, normalized)
+
+    def replace_month_year(match: re.Match[str]) -> str:
+        nonlocal date_hits
+        month = int(match.group("month"))
+        year = int(match.group("year"))
+        if month < 1 or month > 12:
+            return match.group(0)
+        date_hits += 1
+        include_month_prefix = not _context_ends_with_keyword(normalized, match.start(), "tháng")
+        return _format_vietnamese_month_year(month, year, include_month_prefix=include_month_prefix)
+
+    normalized = _GWEN_MONTH_YEAR_PATTERN.sub(replace_month_year, normalized)
+    return normalized, date_hits
+
+
 def _normalize_gwen_text(text: str) -> tuple[str, list[str]]:
     normalized = unicodedata.normalize("NFC", text or "")
     notes: list[str] = []
@@ -352,6 +459,8 @@ def _normalize_gwen_text(text: str) -> tuple[str, list[str]]:
     for source, target in _GWEN_TEXT_REPLACEMENTS:
         if source in normalized:
             normalized = normalized.replace(source, target)
+
+    normalized, date_hits = _normalize_gwen_date_tokens(normalized)
 
     abbreviation_hits = 0
     for pattern, replacement in _GWEN_ABBREVIATION_PATTERNS:
@@ -389,6 +498,8 @@ def _normalize_gwen_text(text: str) -> tuple[str, list[str]]:
     normalized = re.sub(r"([,.;!?])([^\s])", r"\1 \2", normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip()
 
+    if date_hits:
+        notes.append("Đã chuẩn hóa ngày tháng năm viết bằng số sang cách đọc tiếng Việt tự nhiên hơn.")
     if abbreviation_hits:
         notes.append("Đã chuẩn hóa chữ viết tắt tiếng Việt/Latin sang cách đọc tự nhiên hơn.")
     if number_hits:
