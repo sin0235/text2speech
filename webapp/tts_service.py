@@ -2176,7 +2176,7 @@ class TTSStudioService:
 
         runtime_notes: list[str] = []
         generate_call_kwargs = dict(generation_kwargs)
-        default_call_plan: list[str] = ["direct_with_language", "direct_no_language"]
+        default_call_plan: list[str] = ["direct_no_language", "direct_with_language"]
         if hasattr(gwen, "create_voice_clone_prompt"):
             default_call_plan.append("voice_clone_prompt")
 
@@ -2194,7 +2194,17 @@ class TTSStudioService:
             while call_index < len(call_plan):
                 call_mode = call_plan[call_index]
                 try:
-                    if call_mode == "direct_with_language":
+                    if call_mode == "direct_no_language":
+                        wavs, sample_rate = gwen.generate_voice_clone(
+                            text=chunk,
+                            ref_audio=str(prepared_reference_audio),
+                            ref_text=reference_text,
+                            **generate_call_kwargs,
+                        )
+                        if "upstream_direct_flow" not in runtime_notes:
+                            runtime_notes.append("upstream_direct_flow")
+                        preferred_call_mode = call_mode
+                    elif call_mode == "direct_with_language":
                         wavs, sample_rate = gwen.generate_voice_clone(
                             text=chunk,
                             language="Vietnamese",
@@ -2202,18 +2212,8 @@ class TTSStudioService:
                             ref_text=reference_text,
                             **generate_call_kwargs,
                         )
-                        if "official_language_flow" not in runtime_notes:
-                            runtime_notes.append("official_language_flow")
-                        preferred_call_mode = call_mode
-                    elif call_mode == "direct_no_language":
-                        wavs, sample_rate = gwen.generate_voice_clone(
-                            text=chunk,
-                            ref_audio=str(prepared_reference_audio),
-                            ref_text=reference_text,
-                            **generate_call_kwargs,
-                        )
-                        if "no_language_fallback" not in runtime_notes:
-                            runtime_notes.append("no_language_fallback")
+                        if "language_fallback" not in runtime_notes:
+                            runtime_notes.append("language_fallback")
                         preferred_call_mode = call_mode
                     else:
                         voice_clone_prompt = gwen.create_voice_clone_prompt(
@@ -2241,6 +2241,9 @@ class TTSStudioService:
                         generate_call_kwargs.pop("speed", None)
                         if "speed_not_supported" not in runtime_notes and abs(float(normalized_generation_config["speed"]) - 1.0) > 1e-6:
                             runtime_notes.append("speed_not_supported")
+                        continue
+                    if call_mode == "direct_no_language" and "language" in lowered_message:
+                        call_index += 1
                         continue
                     if call_mode == "direct_with_language" and "language" in lowered_message:
                         call_index += 1
@@ -2274,10 +2277,10 @@ class TTSStudioService:
             f"Audio tham chiếu Gwen dài khoảng {ref_duration:.2f}s.",
             "Gwen-TTS dùng transcript tham chiếu để clone giọng trực tiếp theo flow inference của upstream.",
         ]
-        if "official_language_flow" in runtime_notes:
-            notes.insert(0, "Đã gọi Gwen theo khuyến nghị chính thức: truyền `language=\"Vietnamese\"` cùng `ref_audio/ref_text`.")
-        elif "no_language_fallback" in runtime_notes:
-            notes.insert(0, "Runtime `qwen-tts` hiện tại không nhận `language`; app đã fallback sang gọi trực tiếp với `ref_audio/ref_text`.")
+        if "upstream_direct_flow" in runtime_notes:
+            notes.insert(0, "Đã gọi Gwen theo flow inference upstream: truyền `ref_audio/ref_text` trực tiếp, không ép `language`.")
+        elif "language_fallback" in runtime_notes:
+            notes.insert(0, "Runtime Gwen hiện tại cần `language`; app đã fallback sang gọi với `language=\"Vietnamese\"` cùng `ref_audio/ref_text`.")
         elif "prompt_fallback" in runtime_notes:
             notes.insert(0, "Runtime Gwen hiện tại không nhận `ref_audio/ref_text` trực tiếp; app đã fallback sang `voice_clone_prompt`.")
         if "speed_not_supported" in runtime_notes:
