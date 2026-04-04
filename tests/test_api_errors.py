@@ -40,6 +40,8 @@ class ApiErrorHandlingTest(unittest.TestCase):
         self.assertIn("NSND Kim Cúc", html)
         self.assertIn("Cài đặt nâng cao", html)
         self.assertIn("Cài Đặt Phát Âm", html)
+        self.assertIn('maxlength="5000"', html)
+        self.assertIn("0 / 5000", html)
 
     def test_unknown_engine_page_returns_404(self) -> None:
         response = self.client.get("/studio/does-not-exist")

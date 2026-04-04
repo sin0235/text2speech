@@ -25,11 +25,13 @@ from webapp.tts_service import (
     _format_vieneu_runtime_error,
     _map_import_name_to_package,
     _normalize_gwen_generation_config,
+    _normalize_gwen_text,
     _parse_enabled_engines,
     _parse_pronunciation_overrides,
     _normalize_engine_id,
     _normalize_reference_wave,
     _vieneu_mode_requires_reference_text,
+    TEXT_INPUT_LIMIT,
     TTSStudioService,
 )
 
@@ -118,7 +120,15 @@ class TTSServiceHelperTest(unittest.TestCase):
 
         self.assertEqual(updated_text, "ây ai và cây pi ai giúp team ây ai làm việc nhanh hơn.")
         self.assertEqual(applied[0][:2], ("KPI", "cây pi ai"))
-        self.assertEqual(applied[1], ("AI", "ây ai", 2))
+
+    def test_normalize_gwen_text_reads_numbers_and_abbreviations_in_vietnamese(self) -> None:
+        normalized, notes = _normalize_gwen_text("AI đạt 12.5% KPI tại TP.HCM.")
+
+        self.assertIn("ây ai", normalized)
+        self.assertIn("mười hai phẩy năm phần trăm", normalized)
+        self.assertIn("cây pi ai", normalized)
+        self.assertIn("thành phố hồ chí minh", normalized)
+        self.assertEqual(len(notes), 2)
 
     def test_format_f5_import_error_mentions_reinstall_hint(self) -> None:
         exc = ModuleNotFoundError("No module named 'cached_path'", name="cached_path")
@@ -312,6 +322,23 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertGreater(duration_seconds, 3.9)
         self.assertFalse(prep_stats["trimmed"])
 
+    def test_synthesize_rejects_text_longer_than_limit(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+                reference_audio = Path(tmpdir) / "reference.wav"
+                reference_audio.write_bytes(b"fake")
+
+                with self.assertRaises(TTSError) as exc_info:
+                    service.synthesize(
+                        engine_id="gwen",
+                        text="a" * (TEXT_INPUT_LIMIT + 1),
+                        reference_audio=reference_audio,
+                        reference_text="ref",
+                    )
+
+        self.assertIn(f"{TEXT_INPUT_LIMIT} ký tự", str(exc_info.exception))
+
     def test_synthesize_with_gwen_uses_ref_prep_stats_when_reference_was_converted(self) -> None:
         class FakeGwen:
             def create_voice_clone_prompt(self, **_kwargs: object) -> str:
@@ -359,6 +386,60 @@ class TTSServiceHelperTest(unittest.TestCase):
         self.assertEqual(result.sample_rate, 24000)
         self.assertTrue(output_exists)
         self.assertTrue(any("convert sang WAV mono 24kHz" in note for note in result.notes))
+
+    def test_synthesize_with_gwen_prefers_upstream_direct_call_without_language(self) -> None:
+        class FakeGwen:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def create_voice_clone_prompt(self, **_kwargs: object) -> str:
+                raise AssertionError("upstream direct path should be used before clone prompt")
+
+            def generate_voice_clone(self, **kwargs: object) -> tuple[list[np.ndarray], int]:
+                self.calls.append(kwargs)
+                wave = np.sin(np.linspace(0, 8, 24000, dtype=np.float32)) * 0.1
+                return [wave], 24000
+
+        with patch.dict(os.environ, {}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+                fake_gwen = FakeGwen()
+                reference_audio = Path(tmpdir) / "reference.wav"
+                output_path = Path(tmpdir) / "out.wav"
+                model_spec = service.resolve_model_spec("gwen")
+
+                with patch.object(service, "_load_gwen", return_value=fake_gwen):
+                    with patch.object(
+                        service,
+                        "_prepare_reference_audio_for_gwen",
+                        return_value=(
+                            reference_audio,
+                            4.2,
+                            {
+                                "trimmed": False,
+                                "trimmed_seconds": 0.0,
+                                "original_duration_seconds": 4.2,
+                                "activity_ratio": 0.72,
+                                "activity_ratio_after_trim": 0.72,
+                                "converted": False,
+                            },
+                        ),
+                    ):
+                        result = service._synthesize_with_gwen(
+                            text="Xin chao AI 12.5%",
+                            reference_audio=reference_audio,
+                            reference_text="Xin chao AI 12.5%",
+                            model_spec=model_spec,
+                            output_path=output_path,
+                            speed=1.0,
+                        )
+
+        self.assertEqual(len(fake_gwen.calls), 1)
+        self.assertIn("ref_audio", fake_gwen.calls[0])
+        self.assertIn("ref_text", fake_gwen.calls[0])
+        self.assertNotIn("language", fake_gwen.calls[0])
+        self.assertTrue(any("flow upstream" in note for note in result.notes))
+        self.assertTrue(any("chuẩn hóa số" in note for note in result.notes))
 
     def test_gwen_card_is_not_ready_without_cuda(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

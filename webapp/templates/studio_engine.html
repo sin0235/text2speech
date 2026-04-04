@@ -26,7 +26,7 @@
             id="textInput"
             name="text"
             rows="12"
-            maxlength="2500"
+            maxlength="{{ text_input_limit }}"
             class="tts-editor-input"
             placeholder="Nhập nội dung tiếng Việt cần chuyển thành giọng nói..."
           ></textarea>
@@ -34,13 +34,18 @@
 
         <div class="tts-editor-foot">
           <div class="tts-editor-tags">
-            <span class="tts-language-pill">Tiếng Việt</span>
-            <span class="tts-language-pill subtle">{{ engine_card.label }}</span>
+            <button type="button" class="tts-language-pill tts-language-picker">
+              <span class="tts-flag-dot">VN</span>
+              <span>Tiếng Việt</span>
+            </button>
+            <button class="tts-ghost-btn tts-stop-btn" type="button" id="stopBtn" disabled>Dừng</button>
           </div>
 
           <div class="tts-editor-actions">
-            <span id="textCount" class="tts-editor-count">0 / 2500</span>
-            <button class="tts-ghost-btn" type="button" onclick="resetStudio()">Xóa Form</button>
+            <div class="tts-editor-meta">
+              <span class="tts-engine-chip">{{ engine_card.label }}</span>
+              <span id="textCount" class="tts-editor-count">0 / {{ text_input_limit }}</span>
+            </div>
             <button class="tts-submit-btn" type="submit" id="generateBtn" {% if not engine_card.ready %}disabled{% endif %}>Chuyển Đổi</button>
           </div>
         </div>
@@ -105,13 +110,15 @@
     </section>
 
     <aside class="tts-sidebar">
-      <div class="tts-sidebar-tabs">
-        <button type="button" class="tts-sidebar-tab active" id="settingsTabBtn">Cài Đặt</button>
-        <button type="button" class="tts-sidebar-tab" id="historyTabBtn">Lịch Sử</button>
-      </div>
+      <div class="tts-sidebar-frame">
+        <div class="tts-sidebar-tabs">
+          <button type="button" class="tts-sidebar-tab active" id="settingsTabBtn">Cài Đặt</button>
+          <button type="button" class="tts-sidebar-tab" id="historyTabBtn">Lịch Sử</button>
+        </div>
 
-      <div class="tts-sidebar-panel active" id="settingsPanel">
-        <div class="tts-side-banner">
+        <div class="tts-sidebar-panel active" id="settingsPanel">
+          <div class="tts-sidebar-scroll">
+            <div class="tts-side-banner">
           <div class="tts-side-banner-mark">{{ engine_card.label[:2] }}</div>
           <div>
             <div class="tts-side-banner-title">{{ engine_card.label }}</div>
@@ -391,15 +398,30 @@
           </div>
         </section>
         {% endif %}
-      </div>
-
-      <div class="tts-sidebar-panel" id="historyPanel">
-        <section class="tts-side-card">
-          <div class="tts-side-card-title">Lịch Sử Phiên Hiện Tại</div>
-          <div id="historyList" class="history-list">
-            <div class="empty-state small">Các lượt generate mới sẽ hiện ở đây.</div>
           </div>
-        </section>
+        </div>
+
+        <div class="tts-sidebar-panel" id="historyPanel">
+          <div class="tts-sidebar-scroll tts-history-scroll">
+            <section class="tts-side-card tts-history-toolbar">
+              <div class="tts-side-card-title">Lịch Sử Phiên Hiện Tại</div>
+              <label class="tts-history-search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" stroke-width="2"></circle>
+                  <path d="m20 20-3.5-3.5" stroke-width="2" stroke-linecap="round"></path>
+                </svg>
+                <input id="historySearchInput" type="search" placeholder="Tìm kiếm audio..." />
+              </label>
+              <div class="tts-history-note">Audio sinh trong phiên này sẽ hiện ở đây để nghe lại nhanh.</div>
+            </section>
+
+            <section class="tts-side-card tts-history-board">
+              <div id="historyList" class="history-list">
+                <div class="empty-state small">Các lượt generate mới sẽ hiện ở đây.</div>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
     </aside>
   </form>
@@ -480,6 +502,11 @@
   const resultSeekRange = document.getElementById('resultSeekRange');
   const resultCurrentTime = document.getElementById('resultCurrentTime');
   const resultDuration = document.getElementById('resultDuration');
+  const stopBtn = document.getElementById('stopBtn');
+  const historySearchInput = document.getElementById('historySearchInput');
+  const historyList = document.getElementById('historyList');
+  let activeRequestController = null;
+  let lastSubmissionText = '';
   let gwenVoiceMode = ENGINE_ID === 'gwen' && VOICE_PRESETS.length ? 'preset' : 'custom';
 
   function usesPresetVoice() {
@@ -657,7 +684,7 @@
   }
 
   function updateCount() {
-    const limit = Number(textInput.getAttribute('maxlength') || '2500');
+    const limit = Number(textInput.getAttribute('maxlength') || '{{ text_input_limit }}');
     textCount.textContent = `${textInput.value.trim().length} / ${limit}`;
   }
 
@@ -836,6 +863,62 @@
     };
   }
 
+  function setStudioBusyState(isBusy) {
+    const generateBtn = document.getElementById('generateBtn');
+    if (generateBtn) {
+      generateBtn.disabled = isBusy || {{ 'true' if not engine_card.ready else 'false' }};
+      generateBtn.textContent = isBusy ? 'Đang Chuyển...' : 'Chuyển Đổi';
+    }
+    if (stopBtn) {
+      stopBtn.disabled = !isBusy;
+    }
+  }
+
+  function summarizeHistoryText(text, limit = 180) {
+    const compact = (text || '').replace(/\s+/g, ' ').trim();
+    if (!compact) {
+      return '';
+    }
+    if (compact.length <= limit) {
+      return compact;
+    }
+    return `${compact.slice(0, limit).trimEnd()}...`;
+  }
+
+  function applyHistoryFilter() {
+    if (!historyList) {
+      return;
+    }
+    const query = ((historySearchInput && historySearchInput.value) || '').trim().toLowerCase();
+    const items = Array.from(historyList.querySelectorAll('.history-item'));
+    let visibleCount = 0;
+
+    items.forEach((item) => {
+      const haystack = (item.dataset.searchText || '').toLowerCase();
+      const matched = !query || haystack.includes(query);
+      item.classList.toggle('hidden', !matched);
+      if (matched) {
+        visibleCount += 1;
+      }
+    });
+
+    let empty = historyList.querySelector('.empty-state');
+    if (!empty) {
+      empty = document.createElement('div');
+      empty.className = 'empty-state small hidden';
+      historyList.appendChild(empty);
+    }
+    if (empty) {
+      empty.classList.toggle('hidden', items.length > 0 || !!query);
+      if (query && visibleCount === 0) {
+        empty.textContent = 'Không tìm thấy audio nào khớp với từ khóa đang lọc.';
+        empty.classList.remove('hidden');
+      } else if (!query && items.length === 0) {
+        empty.textContent = 'Các lượt generate mới sẽ hiện ở đây.';
+      }
+    }
+  }
+
   function setSidebarTab(tab) {
     const showHistory = tab === 'history';
     if (settingsTabBtn && historyTabBtn) {
@@ -888,17 +971,23 @@
   function resetStudio() {
     document.getElementById('ttsForm').reset();
     uploadFileLabel.textContent = 'Chưa có file nào được chọn';
+    activeRequestController = null;
     updateCount();
     updateSpeed();
     updateGwenAdvancedSettingsUi();
     syncModelOptions(false);
     resetPronunciationRules();
+    if (historySearchInput) {
+      historySearchInput.value = '';
+      applyHistoryFilter();
+    }
     if (resultPlayer) {
       resultPlayer.pause();
       resultPlayer.removeAttribute('src');
       resultPlayer.load();
       syncResultPlayerUi();
     }
+    setStudioBusyState(false);
     if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
       presetVoiceIdInput.value = VOICE_PRESETS[0].id;
       setGwenVoiceMode('preset');
@@ -926,27 +1015,45 @@
   }
 
   function renderHistory(payload) {
-    const history = document.getElementById('historyList');
+    const history = historyList;
     const empty = history.querySelector('.empty-state');
     if (empty) empty.remove();
 
     const item = document.createElement('div');
     item.className = 'history-item';
+    const previewText = summarizeHistoryText(lastSubmissionText);
     const modelMeta = payload.model_label ? ` · ${payload.model_label}` : '';
+    const voiceMeta = payload.preset_voice_label ? payload.preset_voice_label : payload.engine_label;
+    item.dataset.searchText = [payload.download_name, previewText, voiceMeta, payload.model_label || '']
+      .join(' ')
+      .trim();
     item.innerHTML = `
+      <div class="history-status-row">
+        <span class="history-status-badge">Thành công</span>
+        <span class="history-time">${payload.duration_seconds.toFixed(2)}s</span>
+      </div>
       <div class="history-top">
-        <strong>${payload.engine_label}</strong>
-        <span>${payload.duration_seconds.toFixed(2)}s</span>
+        <strong>${voiceMeta}</strong>
+        <span>${payload.sample_rate} Hz</span>
       </div>
       <div class="history-file">${payload.download_name}</div>
+      <div class="history-preview">${previewText || 'Không có preview văn bản.'}</div>
       <div class="history-meta">${payload.sample_rate} Hz · ${payload.chunk_count} chunk${modelMeta}</div>
-      <audio controls class="history-player" src="${payload.audio_url}"></audio>
+      <div class="history-actions-row">
+        <audio controls class="history-player" src="${payload.audio_url}"></audio>
+        <a class="history-download" href="${payload.audio_url}" download="${payload.download_name}" aria-label="Tải audio">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" class="size-4">
+            <path d="M7.50005 1.04999C7.74858 1.04999 7.95005 1.25146 7.95005 1.49999V8.41359L10.1819 6.18179C10.3576 6.00605 10.6425 6.00605 10.8182 6.18179C10.994 6.35753 10.994 6.64245 10.8182 6.81819L7.81825 9.81819C7.64251 9.99392 7.35759 9.99392 7.18185 9.81819L4.18185 6.81819C4.00611 6.64245 4.00611 6.35753 4.18185 6.18179C4.35759 6.00605 4.64251 6.00605 4.81825 6.18179L7.05005 8.41359V1.49999C7.05005 1.25146 7.25152 1.04999 7.50005 1.04999ZM2.5 10C2.77614 10 3 10.2239 3 10.5V12C3 12.5539 3.44565 13 3.99635 13H11.0012C11.5529 13 12 12.5528 12 12V10.5C12 10.2239 12.2239 10 12.5 10C12.7761 10 13 10.2239 13 10.5V12C13 13.1041 12.1062 14 11.0012 14H3.99635C2.89019 14 2 13.103 2 12V10.5C2 10.2239 2.22386 10 2.5 10Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"></path>
+          </svg>
+        </a>
+      </div>
     `;
     history.prepend(item);
 
-    while (history.children.length > 4) {
+    while (history.children.length > 8) {
       history.removeChild(history.lastElementChild);
     }
+    applyHistoryFilter();
   }
 
   function renderResult(payload) {
@@ -983,6 +1090,16 @@
   if (settingsTabBtn && historyTabBtn) {
     settingsTabBtn.addEventListener('click', () => setSidebarTab('settings'));
     historyTabBtn.addEventListener('click', () => setSidebarTab('history'));
+  }
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+      if (activeRequestController) {
+        activeRequestController.abort();
+      }
+    });
+  }
+  if (historySearchInput) {
+    historySearchInput.addEventListener('input', applyHistoryFilter);
   }
   if (resultPlayButton && resultPlayer) {
     resultPlayButton.addEventListener('click', () => {
@@ -1092,14 +1209,16 @@
     }
 
     const overlay = document.getElementById('loadingOverlay');
-    const button = document.getElementById('generateBtn');
+    lastSubmissionText = textInput.value.trim();
+    activeRequestController = new AbortController();
     overlay.style.display = 'flex';
-    button.disabled = true;
+    setStudioBusyState(true);
 
     try {
       const response = await fetch('/api/tts/generate', {
         method: 'POST',
         body: new FormData(this),
+        signal: activeRequestController.signal,
       });
       const payload = await parseApiResponse(response);
       if (!response.ok || !payload.ok) {
@@ -1109,11 +1228,18 @@
       renderResult(payload);
       renderHistory(payload);
     } catch (error) {
+      if (error && error.name === 'AbortError') {
+        document.getElementById('resultState').classList.remove('hidden');
+        document.getElementById('resultCard').classList.add('hidden');
+        document.getElementById('resultState').textContent = 'Đã dừng lượt generate hiện tại.';
+        return;
+      }
       alert('Không thể kết nối tới API TTS. Hãy kiểm tra server Flask hoặc tunnel hiện tại.');
       console.error(error);
     } finally {
+      activeRequestController = null;
       overlay.style.display = 'none';
-      button.disabled = {{ 'true' if not engine_card.ready else 'false' }};
+      setStudioBusyState(false);
     }
   });
 
@@ -1124,6 +1250,8 @@
   resetPronunciationRules();
   setSidebarTab('settings');
   syncResultPlayerUi();
+  applyHistoryFilter();
+  setStudioBusyState(false);
   if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
     presetVoiceIdInput.value = VOICE_PRESETS[0].id;
     setGwenVoiceMode('preset');

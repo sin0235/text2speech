@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,9 @@ import soundfile as sf
 
 class TTSError(RuntimeError):
     """Raised when the selected TTS engine cannot complete synthesis."""
+
+
+TEXT_INPUT_LIMIT = 5000
 
 
 GWEN_GENERATION_DEFAULTS: dict[str, Any] = {
@@ -181,6 +185,215 @@ def _apply_pronunciation_overrides(
         updated_text = updated_text.replace(source, target)
         applied.append((source, target, match_count))
     return updated_text, applied
+
+
+_VI_DIGIT_WORDS = {
+    0: "không",
+    1: "một",
+    2: "hai",
+    3: "ba",
+    4: "bốn",
+    5: "năm",
+    6: "sáu",
+    7: "bảy",
+    8: "tám",
+    9: "chín",
+}
+
+_VI_BIG_UNITS = ["", "nghìn", "triệu", "tỷ", "nghìn tỷ", "triệu tỷ"]
+
+_GWEN_TEXT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("\u00a0", " "),
+    ("…", "..."),
+    ("–", ", "),
+    ("—", ", "),
+    ("“", '"'),
+    ("”", '"'),
+    ("‘", "'"),
+    ("’", "'"),
+)
+
+_GWEN_ABBREVIATION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bTP\.\s*HCM\b"), "thành phố hồ chí minh"),
+    (re.compile(r"\bTP\.\s*HN\b"), "thành phố hà nội"),
+    (re.compile(r"\bAI\b"), "ây ai"),
+    (re.compile(r"\bKPI\b"), "cây pi ai"),
+    (re.compile(r"\bCEO\b"), "si i ô"),
+    (re.compile(r"\bCTO\b"), "si ti ô"),
+    (re.compile(r"\bCFO\b"), "si ép ô"),
+    (re.compile(r"\bCOO\b"), "si ô ô"),
+    (re.compile(r"\bCMO\b"), "si em ô"),
+    (re.compile(r"\bOK\b"), "ô kê"),
+    (re.compile(r"\bID\b"), "ai đi"),
+    (re.compile(r"\bSĐT\b"), "số điện thoại"),
+    (re.compile(r"\bVNĐ\b|\bVND\b"), "đồng"),
+    (re.compile(r"\bUSD\b"), "u ét đê"),
+)
+
+_GWEN_NUMBER_TOKEN_PATTERN = re.compile(
+    r"(?<![\w/])([-+]?\d[\d.,]*)(\s?(?:%|đ|vnđ|vnd|usd|km|kg|gb|mb))?(?![\w/])",
+    flags=re.IGNORECASE,
+)
+
+
+def _read_vietnamese_triplet(number: int, *, force_hundreds: bool = False) -> str:
+    if number <= 0:
+        return "không" if force_hundreds else ""
+
+    hundreds = number // 100
+    tens_units = number % 100
+    tens = tens_units // 10
+    units = tens_units % 10
+    parts: list[str] = []
+
+    if hundreds or force_hundreds:
+        parts.append(f"{_VI_DIGIT_WORDS.get(hundreds, 'không')} trăm")
+
+    if tens > 1:
+        parts.append(f"{_VI_DIGIT_WORDS[tens]} mươi")
+        if units == 1:
+            parts.append("mốt")
+        elif units == 4:
+            parts.append("tư")
+        elif units == 5:
+            parts.append("lăm")
+        elif units > 0:
+            parts.append(_VI_DIGIT_WORDS[units])
+    elif tens == 1:
+        parts.append("mười")
+        if units == 5:
+            parts.append("lăm")
+        elif units > 0:
+            parts.append(_VI_DIGIT_WORDS[units])
+    elif units > 0:
+        if hundreds or force_hundreds:
+            parts.append("linh")
+        parts.append(_VI_DIGIT_WORDS[units])
+
+    return " ".join(part for part in parts if part).strip()
+
+
+def _integer_to_vietnamese(number: int) -> str:
+    if number == 0:
+        return _VI_DIGIT_WORDS[0]
+    if number < 0:
+        return f"âm {_integer_to_vietnamese(abs(number))}"
+
+    groups: list[int] = []
+    while number > 0:
+        groups.append(number % 1000)
+        number //= 1000
+
+    spoken_groups: list[str] = []
+    for index in range(len(groups) - 1, -1, -1):
+        group_value = groups[index]
+        if group_value == 0:
+            continue
+        higher_groups_present = any(value > 0 for value in groups[index + 1 :])
+        force_hundreds = higher_groups_present and group_value < 100
+        spoken = _read_vietnamese_triplet(group_value, force_hundreds=force_hundreds)
+        unit = _VI_BIG_UNITS[index] if index < len(_VI_BIG_UNITS) else ""
+        spoken_groups.append(" ".join(part for part in (spoken, unit) if part))
+
+    return " ".join(spoken_groups).strip()
+
+
+def _parse_number_token(raw_number: str) -> tuple[int | None, str | None]:
+    token = raw_number.strip()
+    if not token:
+        return None, None
+
+    sign = -1 if token.startswith("-") else 1
+    token = token.lstrip("+-")
+    if not token:
+        return None, None
+
+    separator_match = re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", token)
+    if separator_match:
+        return sign * int(token.replace(".", "").replace(",", "")), None
+
+    if token.count(",") == 1 and token.count(".") == 0:
+        left, right = token.split(",", 1)
+        if left.isdigit() and right.isdigit():
+            if len(right) == 3 and len(left) <= 3:
+                return sign * int(left + right), None
+            return sign * int(left), right
+
+    if token.count(".") == 1 and token.count(",") == 0:
+        left, right = token.split(".", 1)
+        if left.isdigit() and right.isdigit():
+            if len(right) == 3 and len(left) <= 3:
+                return sign * int(left + right), None
+            return sign * int(left), right
+
+    compact = token.replace(".", "").replace(",", "")
+    if compact.isdigit():
+        return sign * int(compact), None
+    return None, None
+
+
+def _number_to_vietnamese_text(raw_number: str) -> str | None:
+    integer_part, decimal_part = _parse_number_token(raw_number)
+    if integer_part is None:
+        return None
+
+    spoken = _integer_to_vietnamese(integer_part)
+    if decimal_part:
+        decimal_words = " ".join(_VI_DIGIT_WORDS[int(char)] for char in decimal_part if char.isdigit())
+        if decimal_words:
+            spoken = f"{spoken} phẩy {decimal_words}"
+    return spoken
+
+
+def _normalize_gwen_text(text: str) -> tuple[str, list[str]]:
+    normalized = unicodedata.normalize("NFC", text or "")
+    notes: list[str] = []
+
+    for source, target in _GWEN_TEXT_REPLACEMENTS:
+        if source in normalized:
+            normalized = normalized.replace(source, target)
+
+    abbreviation_hits = 0
+    for pattern, replacement in _GWEN_ABBREVIATION_PATTERNS:
+        normalized, replaced = pattern.subn(replacement, normalized)
+        abbreviation_hits += replaced
+
+    number_hits = 0
+
+    def replace_number(match: re.Match[str]) -> str:
+        nonlocal number_hits
+        number_raw = match.group(1)
+        suffix_raw = (match.group(2) or "").strip().lower()
+        spoken_number = _number_to_vietnamese_text(number_raw)
+        if not spoken_number:
+            return match.group(0)
+
+        unit_map = {
+            "%": "phần trăm",
+            "đ": "đồng",
+            "vnđ": "đồng",
+            "vnd": "đồng",
+            "usd": "u ét đê",
+            "km": "ki lô mét",
+            "kg": "ki lô gam",
+            "gb": "gi ga bai",
+            "mb": "mê ga bai",
+        }
+        suffix_text = unit_map.get(suffix_raw, suffix_raw)
+        number_hits += 1
+        return " ".join(part for part in (spoken_number, suffix_text) if part).strip()
+
+    normalized = _GWEN_NUMBER_TOKEN_PATTERN.sub(replace_number, normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    normalized = re.sub(r"\s+([,.;!?])", r"\1", normalized)
+    normalized = re.sub(r"([,.;!?])([^\s])", r"\1 \2", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    if abbreviation_hits:
+        notes.append("Đã chuẩn hóa chữ viết tắt tiếng Việt/Latin sang cách đọc tự nhiên hơn.")
+    if number_hits:
+        notes.append("Đã chuẩn hóa số và đơn vị sang dạng đọc tiếng Việt trước khi synthesize.")
+    return normalized, notes
 
 
 def _summarize_gwen_generation_changes(config: dict[str, Any] | None = None) -> str | None:
@@ -1289,8 +1502,8 @@ class TTSStudioService:
 
         if not text:
             raise TTSError("Thiếu nội dung văn bản cần chuyển giọng nói.")
-        if len(text) > 2500:
-            raise TTSError("Văn bản quá dài. Giới hạn hiện tại là 2500 ký tự mỗi lượt.")
+        if len(text) > TEXT_INPUT_LIMIT:
+            raise TTSError(f"Văn bản quá dài. Giới hạn hiện tại là {TEXT_INPUT_LIMIT} ký tự mỗi lượt.")
         if not reference_audio.exists():
             raise TTSError("Không tìm thấy file audio tham chiếu.")
 
@@ -1842,7 +2055,7 @@ class TTSStudioService:
         )
         generation_kwargs = _build_gwen_generation_kwargs(normalized_generation_config)
         transformed_text, applied_pronunciations = _apply_pronunciation_overrides(text, pronunciation_overrides)
-        normalized_text = re.sub(r"\s+", " ", transformed_text).strip()
+        normalized_text, text_normalization_notes = _normalize_gwen_text(transformed_text)
         if len(normalized_text) <= 320:
             chunks = [normalized_text]
         else:
@@ -1851,33 +2064,62 @@ class TTSStudioService:
             raise TTSError("Văn bản đầu vào rỗng sau khi chuẩn hóa cho Gwen-TTS.")
 
         runtime_notes: list[str] = []
-
+        chunk_payload: str | list[str] = chunks if len(chunks) > 1 else chunks[0]
+        language_payload: str | list[str] = ["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese"
         generate_call_kwargs = dict(generation_kwargs)
-        while True:
+        call_plan: list[str] = ["direct_no_language", "direct_with_language"]
+        if hasattr(gwen, "create_voice_clone_prompt"):
+            call_plan.append("voice_clone_prompt")
+
+        wavs: Any = None
+        sample_rate: Any = None
+        last_error: Exception | None = None
+        call_index = 0
+
+        while call_index < len(call_plan):
+            call_mode = call_plan[call_index]
             try:
-                if hasattr(gwen, "create_voice_clone_prompt"):
+                if call_mode == "direct_no_language":
+                    wavs, sample_rate = gwen.generate_voice_clone(
+                        text=chunk_payload,
+                        ref_audio=str(prepared_reference_audio),
+                        ref_text=reference_text,
+                        **generate_call_kwargs,
+                    )
+                    runtime_notes.append(
+                        "Đã gọi Gwen theo flow upstream: truyền trực tiếp `ref_audio/ref_text` và không ép tham số `language`."
+                    )
+                elif call_mode == "direct_with_language":
+                    wavs, sample_rate = gwen.generate_voice_clone(
+                        text=chunk_payload,
+                        language=language_payload,
+                        ref_audio=str(prepared_reference_audio),
+                        ref_text=reference_text,
+                        **generate_call_kwargs,
+                    )
+                    runtime_notes.append(
+                        "Runtime Gwen hiện tại cần `language`; app đã fallback sang đường gọi có tham số này."
+                    )
+                else:
                     voice_clone_prompt = gwen.create_voice_clone_prompt(
                         ref_audio=str(prepared_reference_audio),
                         ref_text=reference_text,
                         x_vector_only_mode=False,
                     )
                     wavs, sample_rate = gwen.generate_voice_clone(
-                        text=chunks if len(chunks) > 1 else chunks[0],
-                        language=["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese",
+                        text=chunk_payload,
+                        language=language_payload,
                         voice_clone_prompt=voice_clone_prompt,
                         **generate_call_kwargs,
                     )
-                else:
-                    wavs, sample_rate = gwen.generate_voice_clone(
-                        text=chunks if len(chunks) > 1 else chunks[0],
-                        language=["Vietnamese"] * len(chunks) if len(chunks) > 1 else "Vietnamese",
-                        ref_audio=str(prepared_reference_audio),
-                        ref_text=reference_text,
-                        **generate_call_kwargs,
+                    runtime_notes.append(
+                        "Runtime Gwen hiện tại không nhận `ref_audio/ref_text` trực tiếp; app đã fallback sang `voice_clone_prompt`."
                     )
                 break
             except TypeError as exc:  # pragma: no cover - depends on external install
                 message = str(exc or "")
+                lowered_message = message.lower()
+                last_error = exc
                 if "unexpected keyword argument" in message and "speed" in message and "speed" in generate_call_kwargs:
                     generate_call_kwargs.pop("speed", None)
                     if abs(float(normalized_generation_config["speed"]) - 1.0) > 1e-6:
@@ -1885,9 +2127,25 @@ class TTSStudioService:
                             "Runtime `qwen-tts` hiện tại không nhận tham số `speed`; Gwen chạy ở tốc độ mặc định của model."
                         )
                     continue
+                if call_mode == "direct_no_language" and "language" in lowered_message:
+                    call_index += 1
+                    continue
+                if call_mode in {"direct_no_language", "direct_with_language"} and (
+                    "ref_audio" in lowered_message or "ref_text" in lowered_message
+                ):
+                    call_index = max(call_index + 1, len(call_plan) - 1)
+                    continue
+                if call_mode == "direct_with_language" and "language" in lowered_message:
+                    call_index += 1
+                    continue
                 raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
             except Exception as exc:  # pragma: no cover - depends on external install
+                last_error = exc
                 raise TTSError(f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(exc)}") from exc
+        else:
+            raise TTSError(
+                f"Gwen-TTS sinh audio thất bại: {_format_gwen_runtime_error(last_error or RuntimeError('unknown error'))}"
+            )
 
         raw_waves = wavs if isinstance(wavs, (list, tuple)) else [wavs]
         chunk_waves = [_to_numpy_audio(wave) for wave in raw_waves]
@@ -1902,7 +2160,7 @@ class TTSStudioService:
         runtime_attn = getattr(gwen, "_gwen_runtime_attn_implementation", model_spec["attn_implementation"])
         notes = [
             f"Audio tham chiếu Gwen dài khoảng {ref_duration:.2f}s.",
-            "Gwen-TTS dùng transcript tham chiếu để dựng reusable clone prompt rồi tái sử dụng cho toàn bộ chunk.",
+            "Gwen-TTS dùng transcript tham chiếu để clone giọng trực tiếp theo flow inference của upstream.",
         ]
         if ref_prep_stats.get("converted"):
             notes.append("Reference audio của Gwen đã được convert sang WAV mono 24kHz vì file gốc không phải WAV.")
@@ -1919,6 +2177,8 @@ class TTSStudioService:
             )
         elif pronunciation_overrides:
             notes.insert(0, "Có quy tắc phát âm được khai báo nhưng không khớp với văn bản đầu vào nên không áp dụng.")
+        if text_normalization_notes:
+            notes.insert(0, " ".join(text_normalization_notes))
         generation_summary = _summarize_gwen_generation_changes(normalized_generation_config)
         if generation_summary:
             notes.insert(0, f"Gwen advanced settings: {generation_summary}.")

@@ -1210,10 +1210,11 @@ main {
 }
 
 .history-item {
-  padding: 16px;
-  border-radius: 18px;
-  border: 1px solid var(--border);
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(229, 231, 235, 0.92);
   background: white;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
 }
 
 .history-top {
@@ -1229,7 +1230,9 @@ main {
 
 .history-top span,
 .history-meta,
-.history-file {
+.history-file,
+.history-preview,
+.history-time {
   font-size: 12.5px;
   color: var(--muted);
 }
@@ -1237,6 +1240,52 @@ main {
 .history-file {
   margin-top: 4px;
   font-weight: 600;
+}
+
+.history-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.history-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.history-preview {
+  margin-top: 8px;
+  line-height: 1.55;
+}
+
+.history-actions-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.history-download {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid rgba(221, 214, 254, 0.96);
+  color: var(--studio-accent);
+  background: #faf7ff;
+  text-decoration: none;
 }
 
 .studio-main {
@@ -1380,6 +1429,17 @@ main {
   flex-wrap: wrap;
 }
 
+.tts-editor-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.tts-editor-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .tts-language-pill {
   display: inline-flex;
   align-items: center;
@@ -1399,6 +1459,43 @@ main {
   color: var(--studio-accent-strong);
   background: rgba(248, 244, 255, 0.92);
   border-color: rgba(196, 181, 253, 0.64);
+}
+
+.tts-language-picker {
+  gap: 10px;
+  padding-right: 18px;
+}
+
+.tts-flag-dot {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #fff8c4;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+}
+
+.tts-stop-btn {
+  min-height: 46px;
+  border-radius: 18px;
+  padding: 0 18px;
+}
+
+.tts-engine-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.08);
+  color: var(--studio-accent-strong);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .tts-editor-count {
@@ -1567,46 +1664,87 @@ main {
 .tts-sidebar {
   position: sticky;
   top: 92px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.tts-sidebar-frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 760px;
+  max-height: calc(100vh - 118px);
   padding: 14px;
+  border-radius: 28px;
+  border: 1px solid rgba(236, 231, 251, 0.96);
+  background: linear-gradient(180deg, rgba(250, 250, 253, 0.98), rgba(246, 245, 252, 0.98));
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
 }
 
 .tts-sidebar-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  padding: 8px;
-  border-radius: 24px;
-  background: #faf7ff;
-  border: 1px solid rgba(236, 231, 251, 0.96);
+  padding: 2px 6px 14px;
+  border-bottom: 1px solid rgba(229, 231, 235, 0.9);
+  background: transparent;
 }
 
 .tts-sidebar-tab {
+  position: relative;
   min-height: 54px;
   border: none;
-  border-radius: 18px;
+  border-radius: 0;
   background: transparent;
-  color: #94a3b8;
+  color: #a1a1aa;
   font-family: inherit;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 800;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
+.tts-sidebar-tab::after {
+  content: "";
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: -15px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--studio-accent);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.2s ease;
+}
+
 .tts-sidebar-tab.active {
-  background: #fff;
   color: var(--studio-accent);
-  box-shadow: 0 12px 20px rgba(196, 181, 253, 0.18);
+}
+
+.tts-sidebar-tab.active::after {
+  transform: scaleX(1);
 }
 
 .tts-sidebar-panel {
   display: none;
-  gap: 14px;
+  min-height: 0;
+  flex: 1;
   padding-top: 14px;
 }
 
 .tts-sidebar-panel.active {
+  display: flex;
+}
+
+.tts-sidebar-scroll {
+  width: 100%;
   display: grid;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .tts-side-banner {
@@ -1735,13 +1873,56 @@ main {
 }
 
 .history-list {
-  max-height: 60vh;
-  overflow: auto;
-  padding-right: 4px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 
 .history-item {
   border-radius: 22px;
+}
+
+.tts-history-toolbar,
+.tts-history-board {
+  border-radius: 20px;
+}
+
+.tts-history-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  border-radius: 14px;
+  border: 1px solid rgba(229, 231, 235, 0.96);
+  background: #f9fafb;
+  color: #9ca3af;
+}
+
+.tts-history-search svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.tts-history-search input {
+  width: 100%;
+  min-height: 42px;
+  border: none;
+  background: transparent;
+  padding: 0 12px 0 38px;
+  color: #111827;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.tts-history-search input:focus {
+  outline: none;
+}
+
+.tts-history-note {
+  font-size: 12px;
+  color: #9ca3af;
 }
 
 .tts-workbench .form-control:focus {
@@ -2094,6 +2275,11 @@ footer {
   .tts-sidebar {
     position: static;
   }
+
+  .tts-sidebar-frame {
+    min-height: auto;
+    max-height: none;
+  }
 }
 
 @media (max-width: 780px) {
@@ -2154,6 +2340,15 @@ footer {
     justify-content: space-between;
   }
 
+  .tts-editor-meta {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .tts-sidebar-tabs {
+    padding-bottom: 10px;
+  }
+
   .tts-player-row {
     display: grid;
   }
@@ -2168,6 +2363,10 @@ footer {
 
   .tts-output-stats,
   .preset-voice-grid-compact {
+    grid-template-columns: 1fr;
+  }
+
+  .history-actions-row {
     grid-template-columns: 1fr;
   }
 
