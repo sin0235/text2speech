@@ -413,9 +413,152 @@
   const historyList = document.getElementById('historyList');
   const loadingOverlay = document.getElementById('loadingOverlay');
   const loadingText = loadingOverlay ? loadingOverlay.querySelector('.loading-text') : null;
+  const themedSelectInstances = new Map();
   let activeRequestController = null;
   let lastSubmissionText = '';
   let gwenVoiceMode = ENGINE_ID === 'gwen' && VOICE_PRESETS.length ? 'preset' : 'custom';
+
+  function closeThemedSelectMenus(except = null) {
+    themedSelectInstances.forEach((instance) => {
+      if (instance !== except) {
+        instance.close();
+      }
+    });
+  }
+
+  function syncThemedSelect(selectElement) {
+    const instance = themedSelectInstances.get(selectElement);
+    if (instance) {
+      instance.sync();
+    }
+  }
+
+  function mountThemedSelect(selectElement) {
+    if (!selectElement || themedSelectInstances.has(selectElement)) {
+      return themedSelectInstances.get(selectElement) || null;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'themed-select';
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'themed-select-trigger';
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    const menu = document.createElement('div');
+    menu.className = 'themed-select-menu';
+    menu.setAttribute('role', 'listbox');
+
+    selectElement.classList.add('themed-select-native');
+    selectElement.setAttribute('tabindex', '-1');
+    selectElement.setAttribute('aria-hidden', 'true');
+    selectElement.parentNode.insertBefore(wrapper, selectElement);
+    wrapper.appendChild(selectElement);
+    wrapper.appendChild(trigger);
+    wrapper.appendChild(menu);
+
+    const instance = {
+      wrapper,
+      trigger,
+      menu,
+      select: selectElement,
+      close() {
+        wrapper.classList.remove('is-open');
+        trigger.setAttribute('aria-expanded', 'false');
+      },
+      open() {
+        if (selectElement.disabled || wrapper.classList.contains('is-open')) {
+          return;
+        }
+        closeThemedSelectMenus(instance);
+        wrapper.classList.add('is-open');
+        trigger.setAttribute('aria-expanded', 'true');
+      },
+      sync() {
+        const selectedOption = selectElement.options[selectElement.selectedIndex] || selectElement.options[0] || null;
+        trigger.textContent = selectedOption ? selectedOption.textContent : 'Chọn...';
+        trigger.title = selectedOption ? selectedOption.textContent : '';
+        trigger.disabled = !!selectElement.disabled;
+        wrapper.classList.toggle('is-disabled', !!selectElement.disabled);
+        menu.innerHTML = '';
+
+        Array.from(selectElement.options).forEach((option) => {
+          const optionButton = document.createElement('button');
+          optionButton.type = 'button';
+          optionButton.className = 'themed-select-option';
+          optionButton.textContent = option.textContent;
+          optionButton.dataset.value = option.value;
+          optionButton.setAttribute('role', 'option');
+          optionButton.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+          optionButton.disabled = !!option.disabled;
+          if (option.selected) {
+            optionButton.classList.add('is-selected');
+          }
+          menu.appendChild(optionButton);
+        });
+
+        if (wrapper.classList.contains('is-open')) {
+          const activeButton = menu.querySelector('.themed-select-option.is-selected') || menu.querySelector('.themed-select-option:not(:disabled)');
+          if (activeButton) {
+            window.requestAnimationFrame(() => {
+              activeButton.scrollIntoView({ block: 'nearest' });
+            });
+          }
+        }
+      },
+    };
+
+    trigger.addEventListener('click', () => {
+      if (wrapper.classList.contains('is-open')) {
+        instance.close();
+        return;
+      }
+      instance.open();
+    });
+
+    menu.addEventListener('click', (event) => {
+      const optionButton = event.target.closest('.themed-select-option');
+      if (!optionButton || optionButton.disabled) {
+        return;
+      }
+      const nextValue = optionButton.dataset.value || '';
+      if (selectElement.value !== nextValue) {
+        selectElement.value = nextValue;
+        selectElement.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      instance.sync();
+      instance.close();
+      trigger.focus();
+    });
+
+    const observer = new MutationObserver(() => instance.sync());
+    observer.observe(selectElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['disabled'],
+    });
+
+    selectElement.addEventListener('change', () => instance.sync());
+
+    themedSelectInstances.set(selectElement, instance);
+    instance.sync();
+    return instance;
+  }
+
+  document.addEventListener('click', (event) => {
+    themedSelectInstances.forEach((instance) => {
+      if (!instance.wrapper.contains(event.target)) {
+        instance.close();
+      }
+    });
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeThemedSelectMenus();
+    }
+  });
 
   function usesPresetVoice() {
     return ENGINE_ID === 'gwen' && gwenVoiceMode === 'preset' && !!presetVoiceSelect && !!presetVoiceSelect.value;
@@ -470,6 +613,7 @@
     }
 
     syncReferenceTextUi();
+    syncThemedSelect(presetVoiceSelect);
     window.requestAnimationFrame(syncSidebarLayout);
   }
 
@@ -546,6 +690,7 @@
     }
 
     syncReferenceTextUi();
+    syncThemedSelect(modelSelect);
   }
 
   function syncModelOptions(preserveCurrent = true) {
@@ -1147,6 +1292,7 @@
     presetVoiceSelect.addEventListener('change', () => {
       renderPresetVoiceDetail();
       syncReferenceTextUi();
+      syncThemedSelect(presetVoiceSelect);
     });
   }
   referenceAudio.addEventListener('change', function () {
@@ -1236,6 +1382,8 @@
   updateCount();
   updateSpeed();
   updateGwenAdvancedSettingsUi();
+  mountThemedSelect(modelSelect);
+  mountThemedSelect(presetVoiceSelect);
   syncModelOptions(false);
   resetPronunciationRules();
   bindCollapsibleCard(advancedGwenSettings, advancedGwenSettingsToggle, advancedGwenSettingsBody);
@@ -1245,7 +1393,10 @@
   applyHistoryFilter();
   syncSidebarLayout();
   setStudioBusyState(false);
-  window.addEventListener('resize', syncSidebarLayout);
+  window.addEventListener('resize', () => {
+    closeThemedSelectMenus();
+    syncSidebarLayout();
+  });
   if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
     if (presetVoiceSelect) {
       presetVoiceSelect.value = VOICE_PRESETS[0].id;
@@ -1255,4 +1406,3 @@
 </script>
 
 {% endblock %}
-

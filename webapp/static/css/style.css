@@ -400,6 +400,174 @@ main {
   padding-bottom: 12px;
 }
 
+.themed-select {
+  position: relative;
+  overflow: visible;
+}
+
+.themed-select.is-open {
+  z-index: 70;
+}
+
+.themed-select-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.themed-select-trigger {
+  position: relative;
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 46px 12px 16px;
+  border: 1.6px solid var(--border);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 243, 255, 0.95)),
+    white;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-align: left;
+  line-height: 1.45;
+  cursor: pointer;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.themed-select-trigger::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 18px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--studio-accent, var(--primary));
+  border-bottom: 2px solid var(--studio-accent, var(--primary));
+  transform: translateY(-65%) rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.themed-select.is-open .themed-select-trigger::after {
+  transform: translateY(-25%) rotate(-135deg);
+}
+
+.themed-select.is-open .themed-select-trigger {
+  border-color: rgba(167, 139, 250, 0.7);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(245, 240, 255, 0.96)),
+    white;
+  box-shadow:
+    0 0 0 5px rgba(196, 181, 253, 0.18),
+    0 16px 34px rgba(109, 40, 217, 0.08);
+}
+
+.themed-select-trigger:hover {
+  border-color: rgba(167, 139, 250, 0.52);
+  box-shadow: 0 10px 22px rgba(196, 181, 253, 0.14);
+}
+
+.themed-select-trigger:focus {
+  outline: none;
+  border-color: rgba(167, 139, 250, 0.78);
+  box-shadow: 0 0 0 5px rgba(196, 181, 253, 0.2);
+}
+
+.themed-select-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid rgba(236, 231, 251, 0.96);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 243, 255, 0.97)),
+    white;
+  box-shadow:
+    0 24px 48px rgba(15, 23, 42, 0.12),
+    0 10px 20px rgba(124, 58, 237, 0.08);
+  backdrop-filter: blur(14px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-6px) scale(0.985);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+}
+
+.themed-select-menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.themed-select-menu::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(167, 139, 250, 0.32);
+}
+
+.themed-select.is-open .themed-select-menu {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.themed-select-option {
+  position: relative;
+  width: 100%;
+  padding: 11px 40px 11px 14px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: #334155;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  line-height: 1.45;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.themed-select-option:hover,
+.themed-select-option:focus {
+  outline: none;
+  background: rgba(248, 244, 255, 0.96);
+  border-color: rgba(216, 180, 254, 0.34);
+  color: #1f2937;
+}
+
+.themed-select-option.is-selected {
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.12), rgba(196, 181, 253, 0.18));
+  border-color: rgba(167, 139, 250, 0.44);
+  color: var(--studio-accent, var(--primary));
+}
+
+.themed-select-option.is-selected::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  width: 10px;
+  height: 6px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-68%) rotate(-45deg);
+}
+
+.themed-select-option:disabled,
+.themed-select.is-disabled .themed-select-trigger {
+  opacity: 0.64;
+  cursor: not-allowed;
+}
+
 .field-meta {
   display: flex;
   align-items: center;
