@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from webapp.app import MAX_UPLOAD_MB, app, studio
-from webapp.tts_service import PresetVoice, SynthesisResult
+from webapp.tts_service import PresetVoice, SynthesisResult, TranscriptionResult
 
 
 class ApiErrorHandlingTest(unittest.TestCase):
@@ -44,6 +44,9 @@ class ApiErrorHandlingTest(unittest.TestCase):
         self.assertIn('id="advancedGwenSettingsToggle"', html)
         self.assertIn('id="pronunciationSettings"', html)
         self.assertIn('id="pronunciationSettingsToggle"', html)
+        self.assertIn('id="transcribeReferenceBtn"', html)
+        self.assertIn('id="autoTranscribeReference"', html)
+        self.assertIn('id="useTranscriptForTextBtn"', html)
         self.assertIn('maxlength="5000"', html)
         self.assertIn("0 / 5000", html)
 
@@ -64,6 +67,46 @@ class ApiErrorHandlingTest(unittest.TestCase):
                 "error": "Cần upload audio tham chiếu trước khi sinh giọng.",
             },
         )
+
+    def test_transcribe_reference_without_audio_returns_json(self) -> None:
+        response = self.client.post("/api/tts/transcribe-reference", data={}, content_type="multipart/form-data")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(response.is_json)
+        self.assertEqual(
+            response.get_json(),
+            {
+                "ok": False,
+                "error": "Cần upload audio tham chiếu để nhận diện transcript.",
+            },
+        )
+
+    def test_transcribe_reference_returns_payload(self) -> None:
+        result = TranscriptionResult(
+            text="xin chao tat ca moi nguoi",
+            language="vi",
+            model_id="openai/whisper-small",
+            duration_seconds=2.35,
+            inference_seconds=0.61,
+            notes=["ASR model: openai/whisper-small."],
+        )
+
+        with patch("webapp.app.studio.transcribe_reference_audio", return_value=result):
+            response = self.client.post(
+                "/api/tts/transcribe-reference",
+                data={
+                    "reference_audio": (BytesIO(b"fake wav bytes"), "clone.wav"),
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.is_json)
+        payload = response.get_json()
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["text"], "xin chao tat ca moi nguoi")
+        self.assertEqual(payload["language"], "vi")
+        self.assertEqual(payload["model_id"], "openai/whisper-small")
 
     def test_generate_with_preset_voice_skips_upload_requirement(self) -> None:
         preset_voice = PresetVoice(

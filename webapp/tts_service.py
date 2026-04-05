@@ -599,6 +599,8 @@ def _map_import_name_to_package(module_name: str) -> str:
         "qwen_tts": "qwen-tts",
         "rjieba": "rjieba",
         "sea_g2p": "sea-g2p",
+        "sentencepiece": "sentencepiece",
+        "transformers": "transformers",
         "transformers_stream_generator": "transformers-stream-generator",
         "unidecode": "unidecode",
         "x_transformers": "x-transformers",
@@ -729,6 +731,29 @@ def _format_gwen_runtime_error(exc: Exception) -> str:
     return normalized
 
 
+def _format_asr_import_error(exc: Exception) -> str:
+    if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None):
+        missing_module = exc.name.strip()
+        package_name = _map_import_name_to_package(missing_module)
+        return (
+            f"Chức năng nhận diện transcript đã được bật nhưng thiếu dependency `{missing_module}`. "
+            f"Hãy chạy `python -m pip install -U transformers accelerate sentencepiece {package_name}` "
+            "rồi khởi động lại ứng dụng."
+        )
+    return f"Không thể import module nhận diện transcript: {exc}"
+
+
+def _format_asr_runtime_error(exc: Exception) -> str:
+    normalized = re.sub(r"\s+", " ", str(exc or "")).strip()
+    lowered = normalized.lower()
+    if "out of memory" in lowered or "cuda error" in lowered:
+        return (
+            "Model nhận diện transcript bị lỗi GPU/CUDA khi load hoặc infer. "
+            "Hãy giảm model ASR, giải phóng VRAM, hoặc cho ASR chạy trên CPU."
+        )
+    return f"Không thể nhận diện transcript từ audio tham chiếu: {normalized}"
+
+
 def _normalize_engine_id(value: str, default: str = "gwen") -> str:
     normalized = (value or "").strip().lower()
     if normalized == "vira":
@@ -784,6 +809,16 @@ def _split_text_for_tts(text: str, max_chars: int = 220) -> list[str]:
     if current:
         chunks.append(current)
     return chunks
+
+
+def _normalize_transcription_text(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", (text or "").strip())
+    if not normalized:
+        return ""
+    normalized = re.sub(r"\s+([,.;:!?])", r"\1", normalized)
+    normalized = re.sub(r"([(\[{])\s+", r"\1", normalized)
+    normalized = re.sub(r"\s+([)\]}])", r"\1", normalized)
+    return normalized
 
 
 def _split_text_by_words(text: str, *, max_words: int, max_chars: int | None = None) -> list[str]:
@@ -1158,6 +1193,16 @@ class SynthesisResult:
     notes: list[str] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class TranscriptionResult:
+    text: str
+    language: str
+    model_id: str
+    duration_seconds: float
+    inference_seconds: float
+    notes: list[str] = field(default_factory=list)
+
+
 class TTSStudioService:
     """Flask-facing service that orchestrates Gwen-TTS, VieNeu-TTS, and F5-TTS engines."""
 
@@ -1182,6 +1227,9 @@ class TTSStudioService:
         self.gwen_model_choices = os.getenv("GWEN_MODEL_CHOICES", "").strip()
         self.gwen_dtype = (os.getenv("GWEN_DTYPE", "bfloat16") or "bfloat16").strip().lower() or "bfloat16"
         self.gwen_attn_implementation = (os.getenv("GWEN_ATTN_IMPLEMENTATION", "flash_attention_2") or "flash_attention_2").strip() or "flash_attention_2"
+        self.asr_model_id = os.getenv("ASR_MODEL_ID", "openai/whisper-small").strip() or "openai/whisper-small"
+        self.asr_language = (os.getenv("ASR_LANGUAGE", "vi") or "vi").strip().lower() or "vi"
+        self.asr_chunk_length_s = _clamp_int(os.getenv("ASR_CHUNK_LENGTH_S", "18"), minimum=8, maximum=30, default=18)
         self.vieneu_mode = (os.getenv("VIENEU_MODE", "standard") or "standard").strip().lower() or "standard"
         self.vieneu_mode_choices = os.getenv("VIENEU_MODE_CHOICES", "").strip()
 
@@ -1193,11 +1241,13 @@ class TTSStudioService:
         self._locks = {
             "gwen": Lock(),
             "f5": Lock(),
+            "asr": Lock(),
             "vieneu": Lock(),
         }
         self._loaded_models: dict[str, Any] = {}
         self._gwen_import_probe: tuple[bool, str | None] | None = None
         self._f5_import_probe: tuple[bool, str | None] | None = None
+        self._asr_import_probe: tuple[bool, str | None] | None = None
         self._vieneu_import_probe: tuple[bool, str | None] | None = None
         self._gwen_preset_voices_cache: list[PresetVoice] | None = None
 
@@ -1309,6 +1359,26 @@ class TTSStudioService:
 
         self._f5_import_probe = (True, None)
         return self._f5_import_probe
+
+    def _probe_asr_import(self) -> tuple[bool, str | None]:
+        if self._asr_import_probe is not None:
+            return self._asr_import_probe
+
+        if importlib.util.find_spec("transformers") is None:
+            self._asr_import_probe = (
+                False,
+                "Chưa cài `transformers`. Hãy chạy `python -m pip install -U transformers accelerate sentencepiece` để bật nhận diện transcript.",
+            )
+            return self._asr_import_probe
+
+        try:
+            importlib.import_module("transformers")
+        except Exception as exc:
+            self._asr_import_probe = (False, _format_asr_import_error(exc))
+            return self._asr_import_probe
+
+        self._asr_import_probe = (True, None)
+        return self._asr_import_probe
 
     def _probe_vieneu_import(self) -> tuple[bool, str | None]:
         if self._vieneu_import_probe is not None:
@@ -1675,6 +1745,104 @@ class TTSStudioService:
         saved = self.reference_dir / f"{int(time.time())}-{uuid.uuid4().hex[:8]}-{safe_name}{extension}"
         saved.write_bytes(payload)
         return saved
+
+    def _load_asr(self) -> dict[str, Any]:
+        cache_key = f"asr::{self.asr_model_id}"
+        with self._locks["asr"]:
+            cached = self._loaded_models.get(cache_key)
+            if cached is not None:
+                return cached
+
+            module_ok, warning = self._probe_asr_import()
+            if not module_ok:
+                raise TTSError(warning or "Chưa cài module nhận diện transcript.")
+
+            try:
+                import torch
+                from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+            except Exception as exc:
+                raise TTSError(_format_asr_import_error(exc)) from exc
+
+            try:
+                use_cuda = bool(torch.cuda.is_available())
+                torch_dtype = torch.float16 if use_cuda else torch.float32
+                model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                    self.asr_model_id,
+                    torch_dtype=torch_dtype,
+                    low_cpu_mem_usage=True,
+                )
+                processor = AutoProcessor.from_pretrained(self.asr_model_id)
+                asr_pipeline = pipeline(
+                    "automatic-speech-recognition",
+                    model=model,
+                    tokenizer=processor.tokenizer,
+                    feature_extractor=processor.feature_extractor,
+                    torch_dtype=torch_dtype,
+                    device=0 if use_cuda else -1,
+                    chunk_length_s=self.asr_chunk_length_s,
+                )
+            except Exception as exc:
+                raise TTSError(_format_asr_runtime_error(exc)) from exc
+
+            loaded = {
+                "pipeline": asr_pipeline,
+                "model_id": self.asr_model_id,
+                "language": self.asr_language,
+                "device_label": "cuda:0" if use_cuda else "cpu",
+            }
+            self._loaded_models[cache_key] = loaded
+            return loaded
+
+    def transcribe_reference_audio(self, reference_audio: Path) -> TranscriptionResult:
+        reference_audio = Path(reference_audio)
+        if not reference_audio.exists():
+            raise TTSError("Không tìm thấy file audio để nhận diện transcript.")
+
+        audio_np, sample_rate = _load_audio_mono_float(reference_audio, target_sr=16000)
+        audio_np, prep_stats = _trim_reference_silence(audio_np, sample_rate)
+        duration_seconds = float(len(audio_np) / sample_rate) if sample_rate > 0 else 0.0
+        if duration_seconds < 0.35:
+            raise TTSError("Audio tham chiếu quá ngắn để nhận diện transcript. Hãy dùng đoạn nói rõ tối thiểu khoảng nửa giây.")
+
+        loaded = self._load_asr()
+        asr_pipeline = loaded["pipeline"]
+        generate_kwargs: dict[str, Any] = {"task": "transcribe"}
+        if self.asr_language:
+            generate_kwargs["language"] = self.asr_language
+
+        started = time.perf_counter()
+        try:
+            response = asr_pipeline(
+                {"array": np.asarray(audio_np, dtype=np.float32), "sampling_rate": sample_rate},
+                return_timestamps=False,
+                generate_kwargs=generate_kwargs,
+            )
+        except Exception as exc:
+            raise TTSError(_format_asr_runtime_error(exc)) from exc
+        elapsed = time.perf_counter() - started
+
+        raw_text = response.get("text", "") if isinstance(response, dict) else str(response or "")
+        text = _normalize_transcription_text(raw_text)
+        if not text:
+            raise TTSError("Model nhận diện không trả về transcript nào. Hãy thử audio rõ tiếng hơn hoặc đổi model ASR.")
+
+        notes = [
+            f"ASR model: {loaded['model_id']}.",
+            f"Audio sau chuẩn hóa dài khoảng {duration_seconds:.2f}s.",
+        ]
+        if prep_stats.get("trimmed"):
+            notes.append(
+                f"Đã tự cắt khoảng lặng đầu/cuối khỏi audio tham chiếu (~{float(prep_stats['trimmed_seconds']):.2f}s)."
+            )
+
+        return TranscriptionResult(
+            text=text,
+            language=str(loaded.get("language") or self.asr_language or "vi"),
+            model_id=str(loaded.get("model_id") or self.asr_model_id),
+            duration_seconds=duration_seconds,
+            inference_seconds=elapsed,
+            notes=notes,
+        )
 
     def _prepare_reference_audio_for_vieneu(self, reference_audio: Path) -> tuple[Path, float, dict[str, float | bool]]:
         target_sr = 24000

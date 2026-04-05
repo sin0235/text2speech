@@ -348,6 +348,18 @@ def _build_synthesis_payload(result, *, preset_voice: Any | None = None) -> dict
     }
 
 
+def _build_transcription_payload(result) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "text": result.text,
+        "language": result.language,
+        "model_id": result.model_id,
+        "duration_seconds": round(result.duration_seconds, 2),
+        "inference_seconds": round(result.inference_seconds, 2),
+        "notes": list(result.notes),
+    }
+
+
 def _build_synthesis_submission() -> SynthesisSubmission:
     upload = request.files.get("reference_audio")
     text = (request.form.get("text") or "").strip()
@@ -516,6 +528,29 @@ def api_tts_status():
             ],
         }
     )
+
+
+@app.route("/api/tts/transcribe-reference", methods=["POST"])
+def api_tts_transcribe_reference():
+    upload = request.files.get("reference_audio")
+    if not upload or not upload.filename:
+        return jsonify({"ok": False, "error": "Cần upload audio tham chiếu để nhận diện transcript."}), 400
+
+    extension = Path(upload.filename).suffix.lower()
+    if extension not in ALLOWED_AUDIO_EXTENSIONS:
+        return jsonify({"ok": False, "error": "Định dạng audio chưa hỗ trợ. Chỉ nhận .wav, .mp3, .m4a, .flac, .ogg."}), 400
+
+    reference_path = studio.save_reference_file(upload.filename, upload.read())
+    try:
+        result = studio.transcribe_reference_audio(reference_path)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except TTSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        reference_path.unlink(missing_ok=True)
+
+    return jsonify(_build_transcription_payload(result))
 
 
 @app.route("/api/tts/generate", methods=["POST"])

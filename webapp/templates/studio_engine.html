@@ -152,10 +152,25 @@
               <div class="upload-title">Chọn file audio</div>
               <div class="upload-file" id="uploadFileLabel">Chưa có file nào được chọn</div>
             </label>
+            <div class="tts-reference-tools">
+              <button type="button" class="tts-mini-btn" id="transcribeReferenceBtn">Nhận diện transcript</button>
+              <label class="toggle-row tts-reference-toggle">
+                <input type="checkbox" id="autoTranscribeReference" checked />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span>Tự nhận diện khi chọn audio</span>
+              </label>
+            </div>
+            <div class="tts-inline-hint reference-transcribe-status hidden" id="referenceTranscribeStatus">
+              <span id="referenceTranscribeStatusLabel">Chưa nhận diện transcript từ audio clone.</span>
+            </div>
           </div>
 
           <div class="form-group tts-side-form-group">
             <label for="referenceText">Transcript tham chiếu</label>
+            <div class="field-meta reference-text-meta">
+              <span>Có thể sửa transcript sau khi web tự nhận diện từ audio clone.</span>
+              <button type="button" class="tts-mini-btn secondary" id="useTranscriptForTextBtn">Dùng cho ô văn bản chính</button>
+            </div>
             <textarea
               id="referenceText"
               name="reference_text"
@@ -358,6 +373,11 @@
   const speedValue = document.getElementById('speedValue');
   const referenceAudio = document.getElementById('referenceAudio');
   const referenceText = document.getElementById('referenceText');
+  const transcribeReferenceBtn = document.getElementById('transcribeReferenceBtn');
+  const autoTranscribeReference = document.getElementById('autoTranscribeReference');
+  const referenceTranscribeStatus = document.getElementById('referenceTranscribeStatus');
+  const referenceTranscribeStatusLabel = document.getElementById('referenceTranscribeStatusLabel');
+  const useTranscriptForTextBtn = document.getElementById('useTranscriptForTextBtn');
   const uploadFileLabel = document.getElementById('uploadFileLabel');
   const modelSelect = document.getElementById('modelSelect');
   const customModelInput = document.getElementById('customModelInput');
@@ -415,6 +435,7 @@
   const loadingText = loadingOverlay ? loadingOverlay.querySelector('.loading-text') : null;
   const themedSelectInstances = new Map();
   let activeRequestController = null;
+  let activeTranscriptionController = null;
   let lastSubmissionText = '';
   let gwenVoiceMode = ENGINE_ID === 'gwen' && VOICE_PRESETS.length ? 'preset' : 'custom';
 
@@ -607,9 +628,14 @@
       if (presetVoiceSelect && !presetVoiceSelect.value && VOICE_PRESETS[0]) {
         presetVoiceSelect.value = VOICE_PRESETS[0].id;
       }
+      if (activeTranscriptionController) {
+        activeTranscriptionController.abort();
+      }
+      setReferenceTranscriptionStatus('', 'neutral');
       renderPresetVoiceDetail();
     } else if (referenceText.dataset.fromPreset === 'true') {
       referenceText.value = '';
+      referenceText.dataset.autoDetected = 'false';
     }
 
     syncReferenceTextUi();
@@ -677,6 +703,7 @@
 
     referenceText.required = requiresTranscript;
     referenceText.setAttribute('aria-required', requiresTranscript ? 'true' : 'false');
+    updateReferenceTranscriptActionState();
   }
 
   function syncModelUi() {
@@ -1008,6 +1035,103 @@
     }
   }
 
+  function setReferenceTranscriptionStatus(message = '', tone = 'neutral') {
+    if (!referenceTranscribeStatus || !referenceTranscribeStatusLabel) {
+      return;
+    }
+
+    referenceTranscribeStatus.classList.remove('hidden', 'is-loading', 'is-success', 'is-error');
+    if (!message) {
+      referenceTranscribeStatus.classList.add('hidden');
+      referenceTranscribeStatusLabel.textContent = 'Chưa nhận diện transcript từ audio clone.';
+      window.requestAnimationFrame(syncSidebarLayout);
+      return;
+    }
+
+    referenceTranscribeStatusLabel.textContent = message;
+    referenceTranscribeStatus.classList.toggle('is-loading', tone === 'loading');
+    referenceTranscribeStatus.classList.toggle('is-success', tone === 'success');
+    referenceTranscribeStatus.classList.toggle('is-error', tone === 'error');
+    window.requestAnimationFrame(syncSidebarLayout);
+  }
+
+  function updateReferenceTranscriptActionState() {
+    if (transcribeReferenceBtn) {
+      const hasReferenceFile = !!(referenceAudio && referenceAudio.files && referenceAudio.files.length);
+      transcribeReferenceBtn.disabled = !hasReferenceFile || !!activeTranscriptionController;
+      transcribeReferenceBtn.textContent = activeTranscriptionController ? 'Đang nhận diện...' : 'Nhận diện transcript';
+    }
+    if (useTranscriptForTextBtn) {
+      useTranscriptForTextBtn.disabled = !referenceText || !referenceText.value.trim();
+    }
+  }
+
+  function setReferenceTranscriptionBusy(isBusy) {
+    updateReferenceTranscriptActionState();
+  }
+
+  async function transcribeReferenceAudio({ auto = false } = {}) {
+    const selectedFile = referenceAudio && referenceAudio.files && referenceAudio.files[0];
+    if (!selectedFile) {
+      if (!auto) {
+        setReferenceTranscriptionStatus('Chưa có audio clone để nhận diện transcript.', 'error');
+      }
+      updateReferenceTranscriptActionState();
+      return;
+    }
+    if (selectedFile.size > MAX_UPLOAD_BYTES) {
+      setReferenceTranscriptionStatus(`File audio vượt quá ${MAX_UPLOAD_MB} MB. Hãy cắt ngắn file rồi thử lại.`, 'error');
+      updateReferenceTranscriptActionState();
+      return;
+    }
+
+    if (activeTranscriptionController) {
+      activeTranscriptionController.abort();
+    }
+
+    const formData = new FormData();
+    formData.set('reference_audio', selectedFile);
+    const controller = new AbortController();
+    activeTranscriptionController = controller;
+    setReferenceTranscriptionBusy(true);
+    setReferenceTranscriptionStatus('Đang nhận diện transcript từ audio clone...', 'loading');
+
+    try {
+      const response = await fetch('/api/tts/transcribe-reference', {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+      const payload = await parseApiResponse(response);
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `Không thể nhận diện transcript (HTTP ${response.status}).`);
+      }
+
+      referenceText.value = payload.text || '';
+      referenceText.dataset.fromPreset = 'false';
+      referenceText.dataset.autoDetected = 'true';
+      syncReferenceTextUi();
+      updateReferenceTranscriptActionState();
+      setReferenceTranscriptionStatus(
+        `Đã nhận diện transcript từ audio clone. Có thể sửa lại trước khi generate.${payload.duration_seconds ? ` Audio khoảng ${payload.duration_seconds}s.` : ''}`,
+        'success',
+      );
+    } catch (error) {
+      if (error && error.name === 'AbortError') {
+        return;
+      }
+      setReferenceTranscriptionStatus(
+        error && error.message ? error.message : 'Không thể nhận diện transcript từ audio clone.',
+        'error',
+      );
+    } finally {
+      if (activeTranscriptionController === controller) {
+        activeTranscriptionController = null;
+      }
+      setReferenceTranscriptionBusy(false);
+    }
+  }
+
   function summarizeHistoryText(text, limit = 180) {
     const compact = (text || '').replace(/\s+/g, ' ').trim();
     if (!compact) {
@@ -1107,6 +1231,12 @@
     document.getElementById('ttsForm').reset();
     uploadFileLabel.textContent = 'Chưa có file nào được chọn';
     activeRequestController = null;
+    if (activeTranscriptionController) {
+      activeTranscriptionController.abort();
+      activeTranscriptionController = null;
+    }
+    referenceText.dataset.autoDetected = 'false';
+    setReferenceTranscriptionStatus('', 'neutral');
     updateCount();
     updateSpeed();
     updateGwenAdvancedSettingsUi();
@@ -1123,6 +1253,7 @@
       syncResultPlayerUi();
     }
     setStudioBusyState(false);
+    updateReferenceTranscriptActionState();
     if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
       if (presetVoiceSelect) {
         presetVoiceSelect.value = VOICE_PRESETS[0].id;
@@ -1251,6 +1382,14 @@
   }
 
   textInput.addEventListener('input', updateCount);
+  if (referenceText) {
+    referenceText.addEventListener('input', () => {
+      if (!referenceText.readOnly) {
+        referenceText.dataset.autoDetected = 'false';
+      }
+      updateReferenceTranscriptActionState();
+    });
+  }
   if (speedRange) {
     speedRange.addEventListener('input', () => {
       updateSpeed();
@@ -1295,9 +1434,35 @@
       syncThemedSelect(presetVoiceSelect);
     });
   }
+  if (transcribeReferenceBtn) {
+    transcribeReferenceBtn.addEventListener('click', () => {
+      transcribeReferenceAudio({ auto: false });
+    });
+  }
+  if (useTranscriptForTextBtn) {
+    useTranscriptForTextBtn.addEventListener('click', () => {
+      const transcript = (referenceText && referenceText.value || '').trim();
+      if (!transcript) {
+        return;
+      }
+      textInput.value = transcript;
+      updateCount();
+      textInput.focus();
+    });
+  }
   referenceAudio.addEventListener('change', function () {
     const file = this.files && this.files[0];
     uploadFileLabel.textContent = file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : 'Chưa có file nào được chọn';
+    referenceText.dataset.autoDetected = 'false';
+    if (!file) {
+      setReferenceTranscriptionStatus('', 'neutral');
+      updateReferenceTranscriptActionState();
+      return;
+    }
+    updateReferenceTranscriptActionState();
+    if (autoTranscribeReference && autoTranscribeReference.checked) {
+      transcribeReferenceAudio({ auto: true });
+    }
   });
 
   document.getElementById('ttsForm').addEventListener('submit', async function (event) {
@@ -1382,6 +1547,7 @@
   updateCount();
   updateSpeed();
   updateGwenAdvancedSettingsUi();
+  referenceText.dataset.autoDetected = 'false';
   mountThemedSelect(modelSelect);
   mountThemedSelect(presetVoiceSelect);
   syncModelOptions(false);
@@ -1393,6 +1559,7 @@
   applyHistoryFilter();
   syncSidebarLayout();
   setStudioBusyState(false);
+  updateReferenceTranscriptActionState();
   window.addEventListener('resize', () => {
     closeThemedSelectMenus();
     syncSidebarLayout();

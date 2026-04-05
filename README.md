@@ -114,8 +114,25 @@ Khuyến nghị:
 ## API
 
 - `GET /api/tts/status`
+- `POST /api/tts/transcribe-reference` nhận audio tham chiếu và trả transcript tiếng Việt để người dùng sửa lại trước khi clone
 - `POST /api/tts/generate` nhận thêm `model_key` và `custom_model` để chọn model theo từng request
 - `GET /outputs/<filename>`
+
+## Speech-to-text Cho Audio Clone
+
+Web hiện có thể tự nhận diện transcript từ audio tham chiếu khi bạn upload file clone giọng, rồi đổ kết quả vào ô `Transcript tham chiếu` để sửa tay trước khi generate.
+
+Cài dependency cho tính năng này:
+
+```powershell
+python -m pip install -U transformers accelerate sentencepiece
+```
+
+Biến môi trường hỗ trợ:
+
+- `ASR_MODEL_ID` mặc định `openai/whisper-small`
+- `ASR_LANGUAGE` mặc định `vi`
+- `ASR_CHUNK_LENGTH_S` mặc định `18`
 
 ## UI routes
 
