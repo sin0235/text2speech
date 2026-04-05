@@ -37,6 +37,7 @@ except ImportError:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parent.parent
+CSS_BUNDLE_VERSION = int((ROOT / "webapp" / "static" / "css" / "style.css").stat().st_mtime)
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.logger.setLevel(logging.INFO)
 logging.getLogger("werkzeug").setLevel(logging.WARNING)
@@ -267,6 +268,7 @@ def _base_context(active: str) -> dict:
         "active": active,
         "engine_cards": engine_cards,
         "status_summary": studio.summary(),
+        "static_version": CSS_BUNDLE_VERSION,
     }
 
 

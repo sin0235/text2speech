@@ -4,7 +4,7 @@
 <div class="tts-workbench">
   <div class="tts-workbench-head">
     <div class="tts-workbench-copy">
-      <h1>Chuyển Văn Bản Thành Giọng Nói</h1>
+      <h1>Speech Synthesis</h1>
     </div>
 
     <div class="tts-workbench-pills">
@@ -167,9 +167,9 @@
         </section>
 
         {% if engine_card.id == "gwen" and gwen_settings_payload %}
-        <section class="advanced-settings-card">
-          <div class="advanced-settings-title">Cài đặt nâng cao</div>
-          <div class="advanced-settings-body">
+        <section class="advanced-settings-card" id="advancedGwenSettings">
+          <button class="advanced-settings-summary" type="button" id="advancedGwenSettingsToggle" aria-expanded="false" aria-controls="advancedGwenSettingsBody">Cài đặt nâng cao</button>
+          <div class="advanced-settings-body hidden" id="advancedGwenSettingsBody">
             <div class="advanced-settings-grid">
               <div class="control-card">
                 <label for="speedRange">Tốc độ</label>
@@ -247,9 +247,9 @@
           </div>
         </section>
 
-        <section class="advanced-settings-card">
-          <div class="advanced-settings-title">Cài Đặt Phát Âm</div>
-          <div class="advanced-settings-body">
+        <section class="advanced-settings-card" id="pronunciationSettings">
+          <button class="advanced-settings-summary" type="button" id="pronunciationSettingsToggle" aria-expanded="false" aria-controls="pronunciationSettingsBody">Cài Đặt Phát Âm</button>
+          <div class="advanced-settings-body hidden" id="pronunciationSettingsBody">
             <div id="pronunciationRules" class="pronunciation-rule-list"></div>
 
             <div class="form-actions pronunciation-actions">
@@ -386,6 +386,12 @@
   const gwenSubtalkerTopPValue = document.getElementById('gwenSubtalkerTopPValue');
   const gwenSamplingMethod = document.getElementById('gwenSamplingMethod');
   const gwenSamplingMethodValue = document.getElementById('gwenSamplingMethodValue');
+  const advancedGwenSettings = document.getElementById('advancedGwenSettings');
+  const advancedGwenSettingsToggle = document.getElementById('advancedGwenSettingsToggle');
+  const advancedGwenSettingsBody = document.getElementById('advancedGwenSettingsBody');
+  const pronunciationSettings = document.getElementById('pronunciationSettings');
+  const pronunciationSettingsToggle = document.getElementById('pronunciationSettingsToggle');
+  const pronunciationSettingsBody = document.getElementById('pronunciationSettingsBody');
   const resetGwenSettingsBtn = document.getElementById('resetGwenSettingsBtn');
   const pronunciationRules = document.getElementById('pronunciationRules');
   const addPronunciationRuleBtn = document.getElementById('addPronunciationRuleBtn');
@@ -394,6 +400,8 @@
   const historyTabBtn = document.getElementById('historyTabBtn');
   const settingsPanel = document.getElementById('settingsPanel');
   const historyPanel = document.getElementById('historyPanel');
+  const ttsSidebar = document.querySelector('.tts-sidebar');
+  const ttsSidebarFrame = document.querySelector('.tts-sidebar-frame');
   const resultPlayer = document.getElementById('resultPlayer');
   const resultPlayButton = document.getElementById('resultPlayButton');
   const resultPlayIcon = document.getElementById('resultPlayIcon');
@@ -462,6 +470,7 @@
     }
 
     syncReferenceTextUi();
+    window.requestAnimationFrame(syncSidebarLayout);
   }
 
   function getSelectedVieneuMode() {
@@ -660,12 +669,46 @@
       const source = (sourceInput && sourceInput.value || '').trim();
       const target = (targetInput && targetInput.value || '').trim();
       if (!!source !== !!target) {
+        setCollapsibleCard(pronunciationSettings, pronunciationSettingsToggle, pronunciationSettingsBody, true);
         alert(`Dòng phát âm ${index + 1} phải có đủ chữ gốc và cách đọc.`);
         (sourceInput && !source ? sourceInput : targetInput).focus();
         return false;
       }
     }
     return true;
+  }
+
+  function setCollapsibleCard(card, toggle, body, isOpen) {
+    if (!card || !toggle || !body) {
+      return;
+    }
+    card.classList.toggle('is-open', !!isOpen);
+    body.classList.toggle('hidden', !isOpen);
+    toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+  }
+
+  function bindCollapsibleCard(card, toggle, body) {
+    if (!card || !toggle || !body) {
+      return;
+    }
+    setCollapsibleCard(card, toggle, body, false);
+    toggle.addEventListener('click', () => {
+      setCollapsibleCard(card, toggle, body, !card.classList.contains('is-open'));
+      window.requestAnimationFrame(syncSidebarLayout);
+    });
+  }
+
+  function syncSidebarLayout() {
+    if (!ttsSidebar || !ttsSidebarFrame) {
+      return;
+    }
+    if (window.matchMedia('(max-width: 1080px)').matches) {
+      ttsSidebar.classList.remove('sidebar-unpinned');
+      return;
+    }
+    const frameTop = ttsSidebarFrame.getBoundingClientRect().top;
+    const availableHeight = Math.max(window.innerHeight - frameTop - 16, 320);
+    ttsSidebar.classList.toggle('sidebar-unpinned', ttsSidebarFrame.scrollHeight > availableHeight);
   }
 
   function resetGwenAdvancedSettings() {
@@ -875,6 +918,7 @@
       settingsPanel.classList.toggle('active', !showHistory);
       historyPanel.classList.toggle('active', showHistory);
     }
+    window.requestAnimationFrame(syncSidebarLayout);
   }
 
   function formatAudioTime(totalSeconds) {
@@ -1194,10 +1238,14 @@
   updateGwenAdvancedSettingsUi();
   syncModelOptions(false);
   resetPronunciationRules();
+  bindCollapsibleCard(advancedGwenSettings, advancedGwenSettingsToggle, advancedGwenSettingsBody);
+  bindCollapsibleCard(pronunciationSettings, pronunciationSettingsToggle, pronunciationSettingsBody);
   setSidebarTab('settings');
   syncResultPlayerUi();
   applyHistoryFilter();
+  syncSidebarLayout();
   setStudioBusyState(false);
+  window.addEventListener('resize', syncSidebarLayout);
   if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
     if (presetVoiceSelect) {
       presetVoiceSelect.value = VOICE_PRESETS[0].id;

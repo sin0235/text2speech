@@ -16,7 +16,7 @@
     />
     <link
       rel="stylesheet"
-      href="{{ url_for('static', filename='css/style.css') }}"
+      href="{{ url_for('static', filename='css/style.css', v=static_version) }}"
     />
   </head>
   <body class="page-{{ active }}">
@@ -26,7 +26,7 @@
           <div class="logo-mark">TTS</div>
           <div>
             <b>Vietnamese TTS Studio</b>
-            <span>{{ status_summary.default_engine }} là engine chính của runtime này</span>
+            <span>{{ status_summary.default_engine }} engine</span>
           </div>
         </div>
 

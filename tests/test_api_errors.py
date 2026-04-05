@@ -40,6 +40,10 @@ class ApiErrorHandlingTest(unittest.TestCase):
         self.assertIn("NSND Kim Cúc", html)
         self.assertIn("Cài đặt nâng cao", html)
         self.assertIn("Cài Đặt Phát Âm", html)
+        self.assertIn('id="advancedGwenSettings"', html)
+        self.assertIn('id="advancedGwenSettingsToggle"', html)
+        self.assertIn('id="pronunciationSettings"', html)
+        self.assertIn('id="pronunciationSettingsToggle"', html)
         self.assertIn('maxlength="5000"', html)
         self.assertIn("0 / 5000", html)
 
