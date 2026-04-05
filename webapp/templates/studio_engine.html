@@ -96,15 +96,9 @@
           </div>
 
           <div class="result-stats tts-output-stats" id="resultStats"></div>
-          <div class="result-notes" id="resultNotes"></div>
         </div>
       </div>
 
-      <div class="tts-prompt-strip">
-        {% for example in examples %}
-        <button type="button" class="tts-prompt-chip" onclick='fillExample({{ example|tojson }})'>Mẫu {{ loop.index }}</button>
-        {% endfor %}
-      </div>
     </section>
 
     <aside class="tts-sidebar">
@@ -957,17 +951,6 @@
     }
   }
 
-  function renderNotes(notes) {
-    const wrap = document.getElementById('resultNotes');
-    wrap.innerHTML = '';
-    (notes || []).forEach((note) => {
-      const item = document.createElement('div');
-      item.className = 'note-line';
-      item.textContent = note;
-      wrap.appendChild(item);
-    });
-  }
-
   function renderHistory(payload) {
     const history = historyList;
     const empty = history.querySelector('.empty-state');
@@ -1024,8 +1007,6 @@
       <div class="result-stat"><span>Chunks</span><strong>${payload.chunk_count}</strong></div>
       <div class="result-stat"><span>Model</span><strong>${payload.model_label || 'Default'}</strong></div>
     `;
-    renderNotes(payload.notes);
-
     resultPlayer.src = payload.audio_url;
     resultPlayer.load();
     syncResultPlayerUi();
