@@ -821,6 +821,72 @@ def _normalize_transcription_text(text: str) -> str:
     return normalized
 
 
+def _normalize_tts_prompt_text(text: str) -> tuple[str, list[str]]:
+    normalized = unicodedata.normalize("NFC", text or "")
+    notes: list[str] = []
+
+    invisible_hits = 0
+    for source, target in (
+        ("\u00a0", " "),
+        ("\u200b", ""),
+        ("\u200c", ""),
+        ("\u200d", ""),
+        ("\ufeff", ""),
+    ):
+        if source in normalized:
+            normalized = normalized.replace(source, target)
+            invisible_hits += 1
+
+    normalized, ellipsis_hits = re.subn(r"(?:\.{3,}|…)", ", ", normalized)
+    normalized, dash_hits = re.subn(r"[ \t]+[-–—]{1,}[ \t]+", ", ", normalized)
+
+    line_break_hits = 0
+    bullet_hits = 0
+    if re.search(r"\r?\n", normalized):
+        segments: list[str] = []
+        for raw_segment in re.split(r"(?:\r?\n)+", normalized):
+            segment = raw_segment.strip()
+            if not segment:
+                continue
+            cleaned_segment, removed = re.subn(r"^[\-*+•▪‣◦·]+\s*", "", segment)
+            bullet_hits += removed
+            cleaned_segment = re.sub(r"\s+", " ", cleaned_segment).strip(" ,")
+            if cleaned_segment:
+                segments.append(cleaned_segment)
+        if segments:
+            rebuilt = segments[0]
+            for segment in segments[1:]:
+                separator = " " if rebuilt and rebuilt[-1] in ".!?;:" else ". "
+                rebuilt = f"{rebuilt}{separator}{segment}"
+            normalized = rebuilt
+            line_break_hits = 1
+
+    normalized, repeated_punct_hits = re.subn(r"([,;:!?])\1+", r"\1", normalized)
+    normalized, repeated_stop_hits = re.subn(r"\.{2,}", ".", normalized)
+
+    before_spacing = normalized
+    normalized = re.sub(r"\s+([,.;:!?])", r"\1", normalized)
+    normalized = re.sub(r"([,;:!?])(?=[^\s])", r"\1 ", normalized)
+    normalized = re.sub(r"(?<!\d)\.(?=[^\s\d])", ". ", normalized)
+    normalized = re.sub(r"([(\[{])\s+", r"\1", normalized)
+    normalized = re.sub(r"\s+([)\]}])", r"\1", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip(" ,")
+    spacing_changed = normalized != before_spacing
+
+    terminal_hits = 0
+    if normalized and len(normalized) >= 18 and re.search(r"[.!?][\"')\]}]*$", normalized) is None:
+        normalized += "."
+        terminal_hits = 1
+
+    if line_break_hits or bullet_hits:
+        notes.append("Đã chuẩn hóa xuống dòng và danh sách thành nhịp câu liền mạch hơn.")
+    if ellipsis_hits or dash_hits or repeated_punct_hits or repeated_stop_hits:
+        notes.append("Đã dọn dấu ngắt, dấu chấm lửng và dấu câu lặp để giọng đọc trôi chảy hơn.")
+    if invisible_hits or spacing_changed or terminal_hits:
+        notes.append("Đã chuẩn hóa khoảng trắng và điểm dừng cuối câu trước khi synthesize.")
+    return normalized, notes
+
+
 def _split_text_by_words(text: str, *, max_words: int, max_chars: int | None = None) -> list[str]:
     normalized = re.sub(r"\s+", " ", text).strip()
     if not normalized:
@@ -1678,15 +1744,19 @@ class TTSStudioService:
         gwen_generation_config: dict[str, Any] | None = None,
         pronunciation_overrides: list[tuple[str, str]] | None = None,
     ) -> SynthesisResult:
-        text = re.sub(r"\s+", " ", (text or "").strip())
+        text = (text or "").strip()
         reference_text = re.sub(r"\s+", " ", (reference_text or "").strip())
 
         if not text:
             raise TTSError("Thiếu nội dung văn bản cần chuyển giọng nói.")
-        if len(text) > TEXT_INPUT_LIMIT:
+        if len(re.sub(r"\s+", " ", text)) > TEXT_INPUT_LIMIT:
             raise TTSError(f"Văn bản quá dài. Giới hạn hiện tại là {TEXT_INPUT_LIMIT} ký tự mỗi lượt.")
         if not reference_audio.exists():
             raise TTSError("Không tìm thấy file audio tham chiếu.")
+
+        text, input_normalization_notes = _normalize_tts_prompt_text(text)
+        if not text:
+            raise TTSError("Văn bản đầu vào rỗng sau khi chuẩn hóa cho TTS.")
 
         engine = self.get_engine_card(engine_id)
         if not engine.ready:
@@ -1708,7 +1778,7 @@ class TTSStudioService:
 
         output_path = self.output_dir / f"{int(time.time())}-{uuid.uuid4().hex[:10]}-{engine.id}.wav"
         if engine.id == "gwen":
-            return self._synthesize_with_gwen(
+            result = self._synthesize_with_gwen(
                 text=text,
                 reference_audio=reference_audio,
                 reference_text=reference_text,
@@ -1718,8 +1788,8 @@ class TTSStudioService:
                 gwen_generation_config=gwen_generation_config,
                 pronunciation_overrides=pronunciation_overrides,
             )
-        if engine.id == "f5":
-            return self._synthesize_with_f5(
+        elif engine.id == "f5":
+            result = self._synthesize_with_f5(
                 text=text,
                 reference_audio=reference_audio,
                 reference_text=reference_text,
@@ -1729,15 +1799,20 @@ class TTSStudioService:
                 model_spec=model_spec,
                 output_path=output_path,
             )
-        if engine.id == "vieneu":
-            return self._synthesize_with_vieneu(
+        elif engine.id == "vieneu":
+            result = self._synthesize_with_vieneu(
                 text=text,
                 reference_audio=reference_audio,
                 reference_text=reference_text,
                 model_spec=model_spec,
                 output_path=output_path,
             )
-        raise TTSError(f"Engine '{engine_id}' không được hỗ trợ.")
+        else:
+            raise TTSError(f"Engine '{engine_id}' không được hỗ trợ.")
+
+        if input_normalization_notes:
+            result.notes.insert(0, " ".join(input_normalization_notes))
+        return result
 
     def save_reference_file(self, filename: str, payload: bytes) -> Path:
         extension = Path(filename).suffix.lower() or ".wav"

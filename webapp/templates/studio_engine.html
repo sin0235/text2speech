@@ -878,9 +878,30 @@
       ttsSidebar.classList.remove('sidebar-unpinned');
       return;
     }
-    const frameTop = ttsSidebarFrame.getBoundingClientRect().top;
-    const availableHeight = Math.max(window.innerHeight - frameTop - 16, 320);
-    ttsSidebar.classList.toggle('sidebar-unpinned', ttsSidebarFrame.scrollHeight > availableHeight);
+
+    // Luôn dùng giá trị sticky top cố định (92px từ CSS) để tránh sai lệch
+    // khi sidebar chuyển giữa position:sticky và position:static
+    const STICKY_TOP = 92;
+    const availableHeight = Math.max(window.innerHeight - STICKY_TOP - 16, 320);
+
+    // Đo chiều cao nội dung thực (bỏ qua min-height) để tránh false-positive
+    const savedMinHeight = ttsSidebarFrame.style.minHeight;
+    ttsSidebarFrame.style.minHeight = '0px';
+    const naturalHeight = ttsSidebarFrame.scrollHeight;
+    ttsSidebarFrame.style.minHeight = savedMinHeight;
+
+    const wasUnpinned = ttsSidebar.classList.contains('sidebar-unpinned');
+    const shouldUnpin = naturalHeight > availableHeight;
+
+    ttsSidebar.classList.toggle('sidebar-unpinned', shouldUnpin);
+
+    // Khi chuyển từ unpinned về pinned, reset scroll để tránh content bị ẩn sau scroll
+    if (wasUnpinned && !shouldUnpin) {
+      const scrollEl = ttsSidebar.querySelector('.tts-sidebar-scroll');
+      if (scrollEl) {
+        scrollEl.scrollTop = 0;
+      }
+    }
   }
 
   function resetGwenAdvancedSettings() {

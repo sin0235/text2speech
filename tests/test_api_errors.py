@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from webapp.app import MAX_UPLOAD_MB, app, studio
-from webapp.tts_service import PresetVoice, SynthesisResult, TranscriptionResult
+from webapp.tts_service import EngineCard, PresetVoice, SynthesisResult, TranscriptionResult, _normalize_tts_prompt_text
 
 
 class ApiErrorHandlingTest(unittest.TestCase):
@@ -107,6 +107,70 @@ class ApiErrorHandlingTest(unittest.TestCase):
         self.assertEqual(payload["text"], "xin chao tat ca moi nguoi")
         self.assertEqual(payload["language"], "vi")
         self.assertEqual(payload["model_id"], "openai/whisper-small")
+
+    def test_safe_tts_prompt_normalization_merges_lines_and_spacing(self) -> None:
+        normalized, notes = _normalize_tts_prompt_text("Xin chào\n- hôm nay   ưu đãi lớn\n- miễn phí giao hàng")
+
+        self.assertEqual(normalized, "Xin chào. hôm nay ưu đãi lớn. miễn phí giao hàng.")
+        self.assertTrue(notes)
+
+    def test_safe_tts_prompt_normalization_cleans_punctuation(self) -> None:
+        normalized, notes = _normalize_tts_prompt_text("  Xin  chào  ,bạn!!!  ")
+
+        self.assertEqual(normalized, "Xin chào, bạn!")
+        self.assertTrue(notes)
+
+    def test_synthesize_applies_safe_prompt_normalization_before_engine_call(self) -> None:
+        reference_path = studio.reference_dir / "normalization-test.wav"
+        reference_path.write_bytes(b"RIFF")
+        engine_card = EngineCard(
+            id="f5",
+            label="F5-TTS",
+            headline="demo",
+            description="demo",
+            recommended_for="demo",
+            output_quality="demo",
+            reference_hint="demo",
+            supports_reference_text=True,
+            ready=True,
+            summary="ready",
+        )
+        result = SynthesisResult(
+            engine_id="f5",
+            engine_label="F5-TTS",
+            model_key="default",
+            model_label="Default",
+            output_path=studio.output_dir / "norm-pass.wav",
+            sample_rate=24000,
+            duration_seconds=1.0,
+            inference_seconds=0.2,
+            chunk_count=1,
+            reference_text_used=False,
+            seed=None,
+            notes=[],
+        )
+
+        try:
+            with patch.object(studio, "get_engine_card", return_value=engine_card):
+                with patch.object(studio, "resolve_model_spec", return_value={"key": "default", "label": "Default"}):
+                    with patch.object(studio, "_synthesize_with_f5", return_value=result) as synth_mock:
+                        output = studio.synthesize(
+                            engine_id="f5",
+                            text="Xin chào\n- hôm nay sale lớn",
+                            reference_audio=reference_path,
+                            reference_text="",
+                            speed=1.0,
+                            remove_silence=False,
+                            seed=None,
+                            model_key="default",
+                            custom_model="",
+                        )
+        finally:
+            reference_path.unlink(missing_ok=True)
+
+        self.assertEqual(synth_mock.call_args.kwargs["text"], "Xin chào. hôm nay sale lớn.")
+        self.assertTrue(output.notes)
+        self.assertIn("Đã chuẩn hóa", output.notes[0])
 
     def test_generate_with_preset_voice_skips_upload_requirement(self) -> None:
         preset_voice = PresetVoice(

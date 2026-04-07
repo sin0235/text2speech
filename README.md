@@ -6,6 +6,8 @@ Flask webapp cho text-to-speech tiếng Việt, hiện hỗ trợ ba engine:
 - `VieNeu-TTS` giữ vai trò engine phụ cho flow tiếng Việt 24kHz.
 - `F5-TTS` vẫn có sẵn để thử model hoặc flow khác.
 
+Web cũng tự chuẩn hóa nhẹ văn bản đầu vào trước khi synthesize, ví dụ dọn xuống dòng/bullet list, dấu chấm lửng, dấu câu lặp và khoảng trắng để nhịp đọc mượt hơn mà không can thiệp mạnh vào transcript tham chiếu.
+
 ## Run
 
 ```powershell

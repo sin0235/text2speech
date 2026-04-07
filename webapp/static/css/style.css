@@ -1831,7 +1831,7 @@ main {
 .tts-sidebar-frame {
   display: flex;
   flex-direction: column;
-  min-height: 760px;
+  min-height: min(760px, max(200px, calc(100vh - 150px)));
   max-height: calc(100vh - 118px);
   padding: 12px;
   border-radius: 28px;
