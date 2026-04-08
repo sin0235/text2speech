@@ -8,6 +8,20 @@
       name="description"
       content="Studio text to speech tiếng Việt với Gwen-TTS làm model chủ chốt."
     />
+    <link
+      rel="icon"
+      type="image/png"
+      href="{{ url_for('static', filename='images/logo.png', v=static_version) }}"
+    />
+    <link
+      rel="shortcut icon"
+      type="image/png"
+      href="{{ url_for('static', filename='images/logo.png', v=static_version) }}"
+    />
+    <link
+      rel="apple-touch-icon"
+      href="{{ url_for('static', filename='images/logo.png', v=static_version) }}"
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -23,7 +37,13 @@
     <div class="site-shell">
       <header class="site-header">
         <div class="logo">
-          <div class="logo-mark">TTS</div>
+          <div class="logo-mark">
+            <img
+              src="{{ url_for('static', filename='images/logo.png', v=static_version) }}"
+              alt=""
+              class="logo-mark-image"
+            />
+          </div>
           <div>
             <b>Vietnamese TTS Studio</b>
             <span>{{ status_summary.default_engine }} engine</span>
