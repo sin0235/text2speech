@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -268,7 +269,7 @@ def _base_context(active: str) -> dict:
         "active": active,
         "engine_cards": engine_cards,
         "status_summary": studio.summary(),
-        "static_version": CSS_BUNDLE_VERSION,
+        "static_version": int((ROOT / "webapp" / "static" / "css" / "style.css").stat().st_mtime),
     }
 
 
@@ -652,5 +653,22 @@ def serve_generated_audio(filename: str):
     return send_from_directory(studio.output_dir, filename, mimetype=guessed, as_attachment=False)
 
 
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=8386)
+    host = (os.getenv("TTS_WEBAPP_HOST") or "0.0.0.0").strip() or "0.0.0.0"
+    port_raw = (os.getenv("TTS_WEBAPP_PORT") or "8386").strip()
+    try:
+        port = int(port_raw)
+    except ValueError:
+        app.logger.warning("Invalid TTS_WEBAPP_PORT=%r, fallback to 8386.", port_raw)
+        port = 8386
+
+    debug = _env_flag("TTS_WEBAPP_DEBUG", default=False)
+    use_reloader = _env_flag("TTS_WEBAPP_RELOADER", default=False)
+    app.run(debug=debug, host=host, port=port, use_reloader=use_reloader)
