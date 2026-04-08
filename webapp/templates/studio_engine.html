@@ -38,7 +38,15 @@
               <span class="tts-flag-dot">VN</span>
               <span>Tiếng Việt</span>
             </button>
-            <button class="tts-ghost-btn tts-autoplay-btn" type="button" id="autoPlayBtn" aria-pressed="true" title="Tự phát audio sau khi sinh xong">Tự phát</button>
+            <button class="tts-ghost-btn tts-autoplay-btn" type="button" id="autoPlayBtn" aria-pressed="true" title="Tự phát audio sau khi sinh xong">
+              <svg class="autoplay-speaker" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path class="wave wave-1" d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                <path class="wave wave-2" d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                <line class="mute-line" x1="23" y1="9" x2="17" y2="15"/>
+                <line class="mute-line" x1="17" y1="9" x2="23" y2="15"/>
+              </svg>
+            </button>
           </div>
 
           <div class="tts-editor-actions">
@@ -145,14 +153,11 @@
           </div>
 
           <div class="form-group tts-side-form-group">
-            <div class="tts-transcript-label-row">
-              <label for="referenceText">Transcript</label>
-              <button type="button" class="tts-mini-btn secondary" id="useTranscriptForTextBtn">Dùng cho ô chính</button>
-            </div>
+            <label for="referenceText">Transcript</label>
             <textarea
               id="referenceText"
               name="reference_text"
-              rows="3"
+              rows="2"
               class="form-control"
               placeholder="Transcript đúng với audio tham chiếu"
             ></textarea>
@@ -174,12 +179,11 @@
             <label for="referenceText">Transcript tham chiếu</label>
             <div class="field-meta reference-text-meta">
               <span>Có thể sửa transcript sau khi web tự nhận diện từ audio clone.</span>
-              <button type="button" class="tts-mini-btn secondary" id="useTranscriptForTextBtn">Dùng cho ô văn bản chính</button>
             </div>
             <textarea
               id="referenceText"
               name="reference_text"
-              rows="4"
+              rows="2"
               class="form-control"
               placeholder="Nhập đúng câu đang có trong audio tham chiếu nếu engine hiện tại yêu cầu transcript."
             ></textarea>
@@ -188,13 +192,15 @@
         </section>
 
         {% if engine_card.id == "gwen" and gwen_settings_payload %}
-        <section class="advanced-settings-card advanced-modal-card" id="advancedGwenSettings">
-          <button class="advanced-settings-summary advanced-modal-trigger" type="button" id="advancedGwenSettingsToggle" data-modal-target="advancedGwenSettingsModal" aria-haspopup="dialog" aria-expanded="false" aria-controls="advancedGwenSettingsModal">Cài đặt nâng cao</button>
-        </section>
+        <div class="tts-advanced-actions-row">
+          <section class="advanced-settings-card advanced-modal-card" id="advancedGwenSettings">
+            <button class="advanced-settings-summary advanced-modal-trigger" type="button" id="advancedGwenSettingsToggle" data-modal-target="advancedGwenSettingsModal" aria-haspopup="dialog" aria-expanded="false" aria-controls="advancedGwenSettingsModal">Cài đặt nâng cao</button>
+          </section>
 
-        <section class="advanced-settings-card advanced-modal-card" id="pronunciationSettings">
-          <button class="advanced-settings-summary advanced-modal-trigger" type="button" id="pronunciationSettingsToggle" data-modal-target="pronunciationSettingsModal" aria-haspopup="dialog" aria-expanded="false" aria-controls="pronunciationSettingsModal">Cài Đặt Phát Âm</button>
-        </section>
+          <section class="advanced-settings-card advanced-modal-card" id="pronunciationSettings">
+            <button class="advanced-settings-summary advanced-modal-trigger" type="button" id="pronunciationSettingsToggle" data-modal-target="pronunciationSettingsModal" aria-haspopup="dialog" aria-expanded="false" aria-controls="pronunciationSettingsModal">Cài Đặt Phát Âm</button>
+          </section>
+        </div>
 
         {% else %}
         <section class="tts-side-card">
@@ -391,7 +397,6 @@
   const referenceText = document.getElementById('referenceText');
   const referenceTranscribeStatus = document.getElementById('referenceTranscribeStatus');
   const referenceTranscribeStatusLabel = document.getElementById('referenceTranscribeStatusLabel');
-  const useTranscriptForTextBtn = document.getElementById('useTranscriptForTextBtn');
   const uploadFileLabel = document.getElementById('uploadFileLabel');
   const presetModeBtn = document.getElementById('presetModeBtn');
   const customModeBtn = document.getElementById('customModeBtn');
@@ -1088,9 +1093,7 @@
   }
 
   function updateReferenceTranscriptActionState() {
-    if (useTranscriptForTextBtn) {
-      useTranscriptForTextBtn.disabled = !referenceText || !referenceText.value.trim();
-    }
+    return;
   }
 
   function setReferenceTranscriptionBusy(isBusy) {
@@ -1458,17 +1461,6 @@
       renderPresetVoiceDetail();
       syncReferenceTextUi();
       syncThemedSelect(presetVoiceSelect);
-    });
-  }
-  if (useTranscriptForTextBtn) {
-    useTranscriptForTextBtn.addEventListener('click', () => {
-      const transcript = (referenceText && referenceText.value || '').trim();
-      if (!transcript) {
-        return;
-      }
-      textInput.value = transcript;
-      updateCount();
-      textInput.focus();
     });
   }
   referenceAudio.addEventListener('change', function () {
