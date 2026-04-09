@@ -63,12 +63,14 @@
             </svg>
             Voices
           </a>
+          {% if asr_enabled %}
           <a href="{{ url_for('asr_page') }}" class="{{ 'active' if active == 'asr' }}">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8M12 1a3 3 0 00-3 3v7a3 3 0 006 0V4a3 3 0 00-3-3z" />
             </svg>
             ASR
           </a>
+          {% endif %}
         </nav>
 
         <div class="header-status"></div>

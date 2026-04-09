@@ -143,6 +143,14 @@ class TTSServiceHelperTest(unittest.TestCase):
 
         self.assertEqual(service.default_engine, "gwen")
         self.assertEqual(service.gwen_model_id, "g-group-ai-lab/gwen-tts-0.6B")
+        self.assertFalse(service.is_asr_enabled())
+
+    def test_asr_can_be_enabled_explicitly(self) -> None:
+        with patch.dict(os.environ, {"TTS_ENABLE_ASR": "1"}, clear=True):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                service = TTSStudioService(Path(tmpdir))
+
+        self.assertTrue(service.is_asr_enabled())
 
     def test_engine_cards_returns_only_gwen(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

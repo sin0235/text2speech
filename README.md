@@ -8,6 +8,8 @@ Flask webapp cho text-to-speech tiếng Việt, hiện hỗ trợ ba engine:
 
 Web cũng tự chuẩn hóa nhẹ văn bản đầu vào trước khi synthesize, ví dụ dọn xuống dòng/bullet list, dấu chấm lửng, dấu câu lặp và khoảng trắng để nhịp đọc mượt hơn mà không can thiệp mạnh vào transcript tham chiếu.
 
+Hiện tại repo mặc định chạy ở chế độ `TTS-only`: ASR bị tắt sẵn để tránh xung đột dependency/model với `qwen-tts`. Nếu cần bật lại ASR, đặt `TTS_ENABLE_ASR=1` trước khi khởi động app.
+
 ## Run
 
 ```powershell
@@ -116,13 +118,20 @@ Khuyến nghị:
 ## API
 
 - `GET /api/tts/status`
-- `POST /api/tts/transcribe-reference` nhận audio tham chiếu và trả transcript tiếng Việt để người dùng sửa lại trước khi clone
+- `POST /api/tts/transcribe-reference` chỉ hoạt động khi bật `TTS_ENABLE_ASR=1`
 - `POST /api/tts/generate` nhận thêm `model_key` và `custom_model` để chọn model theo từng request
 - `GET /outputs/<filename>`
 
 ## Speech-to-text Cho Audio Clone
 
-Web hiện có thể tự nhận diện transcript từ audio tham chiếu khi bạn upload file clone giọng, rồi đổ kết quả vào ô `Transcript tham chiếu` để sửa tay trước khi generate.
+Web hiện đang tắt mặc định tính năng ASR này để tránh xung đột với Gwen-TTS. Nếu cần tự nhận diện transcript từ audio tham chiếu hoặc dùng trang `/asr`, hãy bật lại:
+
+```powershell
+$env:TTS_ENABLE_ASR="1"
+python webapp/app.py
+```
+
+Khi ASR đang tắt, hãy nhập transcript thủ công cho audio clone trước khi generate.
 
 Cài dependency cho tính năng này:
 
@@ -132,6 +141,7 @@ python -m pip install -U transformers accelerate sentencepiece
 
 Biến môi trường hỗ trợ:
 
+- `TTS_ENABLE_ASR` mặc định `0`; đặt `1` để bật lại toàn bộ flow ASR
 - `ASR_MODEL_ID` mặc định `openai/whisper-small`
 - `ASR_LANGUAGE` mặc định `vi`
 - `ASR_CHUNK_LENGTH_S` mặc định `18`

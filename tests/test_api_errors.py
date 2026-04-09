@@ -22,6 +22,13 @@ class ApiErrorHandlingTest(unittest.TestCase):
         response = self.client.get("/studio/gwen")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Gwen-TTS", response.get_data(as_text=True))
+        self.assertNotIn('href="/asr"', response.get_data(as_text=True))
+
+    def test_asr_page_redirects_to_studio_when_disabled(self) -> None:
+        response = self.client.get("/asr", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/studio/gwen"))
 
     def test_gwen_page_lists_official_preset_voices(self) -> None:
         response = self.client.get("/studio/gwen")
@@ -56,8 +63,16 @@ class ApiErrorHandlingTest(unittest.TestCase):
             },
         )
 
-    def test_transcribe_reference_without_audio_returns_json(self) -> None:
+    def test_transcribe_reference_returns_disabled_when_asr_off(self) -> None:
         response = self.client.post("/api/tts/transcribe-reference", data={}, content_type="multipart/form-data")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertTrue(response.is_json)
+        self.assertIn("ASR đang tắt", response.get_json()["error"])
+
+    def test_transcribe_reference_without_audio_returns_json(self) -> None:
+        with patch("webapp.app.studio.is_asr_enabled", return_value=True):
+            response = self.client.post("/api/tts/transcribe-reference", data={}, content_type="multipart/form-data")
 
         self.assertEqual(response.status_code, 400)
         self.assertTrue(response.is_json)
@@ -79,14 +94,15 @@ class ApiErrorHandlingTest(unittest.TestCase):
             notes=["ASR model: openai/whisper-small."],
         )
 
-        with patch("webapp.app.studio.transcribe_reference_audio", return_value=result):
-            response = self.client.post(
-                "/api/tts/transcribe-reference",
-                data={
-                    "reference_audio": (BytesIO(b"fake wav bytes"), "clone.wav"),
-                },
-                content_type="multipart/form-data",
-            )
+        with patch("webapp.app.studio.is_asr_enabled", return_value=True):
+            with patch("webapp.app.studio.transcribe_reference_audio", return_value=result):
+                response = self.client.post(
+                    "/api/tts/transcribe-reference",
+                    data={
+                        "reference_audio": (BytesIO(b"fake wav bytes"), "clone.wav"),
+                    },
+                    content_type="multipart/form-data",
+                )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.is_json)
@@ -95,6 +111,13 @@ class ApiErrorHandlingTest(unittest.TestCase):
         self.assertEqual(payload["text"], "xin chao tat ca moi nguoi")
         self.assertEqual(payload["language"], "vi")
         self.assertEqual(payload["model_id"], "openai/whisper-small")
+
+    def test_api_asr_transcribe_returns_disabled_when_asr_off(self) -> None:
+        response = self.client.post("/api/asr/transcribe", data={}, content_type="multipart/form-data")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertTrue(response.is_json)
+        self.assertIn("ASR đang tắt", response.get_json()["error"])
 
     def test_safe_tts_prompt_normalization_merges_lines_and_spacing(self) -> None:
         normalized, notes = _normalize_tts_prompt_text("Xin chào\n- hôm nay   ưu đãi lớn\n- miễn phí giao hàng")

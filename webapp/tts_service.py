@@ -1135,6 +1135,7 @@ class TTSStudioService:
         self.gwen_model_choices = os.getenv("GWEN_MODEL_CHOICES", "").strip()
         self.gwen_dtype = (os.getenv("GWEN_DTYPE", "bfloat16") or "bfloat16").strip().lower() or "bfloat16"
         self.gwen_attn_implementation = (os.getenv("GWEN_ATTN_IMPLEMENTATION", "flash_attention_2") or "flash_attention_2").strip() or "flash_attention_2"
+        self.asr_enabled = _env_flag("TTS_ENABLE_ASR", default=False)
         self.asr_model_id = os.getenv("ASR_MODEL_ID", "openai/whisper-small").strip() or "openai/whisper-small"
         self.asr_language = (os.getenv("ASR_LANGUAGE", "vi") or "vi").strip().lower() or "vi"
         self.asr_chunk_length_s = _clamp_int(os.getenv("ASR_CHUNK_LENGTH_S", "18"), minimum=8, maximum=30, default=18)
@@ -1160,6 +1161,20 @@ class TTSStudioService:
     @staticmethod
     def _make_gwen_model_key(model_id: str) -> str:
         return f"model::{model_id.strip()}"
+
+    def is_asr_enabled(self) -> bool:
+        return self.asr_enabled
+
+    @staticmethod
+    def asr_disabled_message() -> str:
+        return (
+            "ASR đang tắt tạm thời để tránh xung đột dependency/model với Gwen-TTS. "
+            "Webapp hiện chỉ giữ flow TTS. Đặt `TTS_ENABLE_ASR=1` rồi khởi động lại ứng dụng nếu muốn bật lại."
+        )
+
+    def _ensure_asr_enabled(self) -> None:
+        if not self.asr_enabled:
+            raise TTSError(self.asr_disabled_message())
 
     def _load_gwen_preset_voices(self) -> list[PresetVoice]:
         if self._gwen_preset_voices_cache is not None:
@@ -1235,6 +1250,10 @@ class TTSStudioService:
 
     def _probe_asr_import(self) -> tuple[bool, str | None]:
         if self._asr_import_probe is not None:
+            return self._asr_import_probe
+
+        if not self.asr_enabled:
+            self._asr_import_probe = (False, self.asr_disabled_message())
             return self._asr_import_probe
 
         if importlib.util.find_spec("transformers") is None:
@@ -1410,6 +1429,7 @@ class TTSStudioService:
         return saved
 
     def _load_asr(self) -> dict[str, Any]:
+        self._ensure_asr_enabled()
         cache_key = f"asr::{self.asr_model_id}"
         with self._locks["asr"]:
             cached = self._loaded_models.get(cache_key)
@@ -1457,6 +1477,7 @@ class TTSStudioService:
             return loaded
 
     def transcribe_reference_audio(self, reference_audio: Path) -> TranscriptionResult:
+        self._ensure_asr_enabled()
         reference_audio = Path(reference_audio)
         if not reference_audio.exists():
             raise TTSError("Không tìm thấy file audio để nhận diện transcript.")
@@ -1827,6 +1848,7 @@ class TTSStudioService:
         )
 
     def _load_vibevoice_asr(self, *, dtype_override: str | None = None) -> dict[str, Any]:
+        self._ensure_asr_enabled()
         import torch
 
         dtype_map = {
@@ -1894,6 +1916,7 @@ class TTSStudioService:
         dtype_override: str | None = None,
         system_prompt: str | None = None,
     ) -> VibeVoiceASRResult:
+        self._ensure_asr_enabled()
         audio_path = Path(audio_path)
         if not audio_path.exists():
             raise TTSError("Không tìm thấy file audio để nhận diện.")

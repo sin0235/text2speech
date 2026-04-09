@@ -129,13 +129,21 @@
       <span id="cloneTranscribeStatusLabel"></span>
     </div>
 
+    {% if not asr_enabled %}
+    <div class="tts-inline-hint" style="margin-top: 10px;">
+      ASR đang tắt tạm thời để tránh xung đột với Gwen-TTS. Hãy nhập transcript thủ công khi clone giọng.
+    </div>
+    {% endif %}
+
     <div class="voices-clone-actions">
+      {% if asr_enabled %}
       <button class="voices-clone-btn voices-clone-btn-primary" type="button" id="cloneTranscribeBtn" disabled>
         <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8" />
         </svg>
         Nhận diện transcript
       </button>
+      {% endif %}
       <a class="voices-clone-btn voices-clone-btn-secondary" id="cloneUseInStudioBtn" href="{{ url_for('engine_page', engine_id='gwen') }}" style="pointer-events:none;opacity:0.5">
         <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -283,7 +291,7 @@
       cloneLabel.textContent = file
         ? file.name + ' - ' + (file.size / 1024 / 1024).toFixed(2) + ' MB'
         : 'Chưa có file nào được chọn';
-      cloneTranscribeBtn.disabled = !file;
+      if (cloneTranscribeBtn) cloneTranscribeBtn.disabled = !file;
       syncCloneBtn();
     });
   }
@@ -319,7 +327,7 @@
         cloneStatus.classList.add('is-error');
         cloneStatusLabel.textContent = err.message || 'Không thể nhận diện transcript.';
       } finally {
-        cloneTranscribeBtn.disabled = !(cloneAudio.files && cloneAudio.files[0]);
+        if (cloneTranscribeBtn) cloneTranscribeBtn.disabled = !(cloneAudio.files && cloneAudio.files[0]);
       }
     });
   }

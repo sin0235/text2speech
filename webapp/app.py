@@ -266,6 +266,7 @@ def _base_context(active: str) -> dict:
     engine_cards = studio.get_engine_cards()
     return {
         "active": active,
+        "asr_enabled": studio.is_asr_enabled(),
         "engine_cards": engine_cards,
         "status_summary": studio.summary(),
         "static_version": int((ROOT / "webapp" / "static" / "css" / "style.css").stat().st_mtime),
@@ -352,6 +353,10 @@ def _build_transcription_payload(result) -> dict[str, Any]:
         "inference_seconds": round(result.inference_seconds, 2),
         "notes": list(result.notes),
     }
+
+
+def _asr_disabled_response():
+    return jsonify({"ok": False, "error": studio.asr_disabled_message()}), 503
 
 
 def _build_synthesis_submission() -> SynthesisSubmission:
@@ -508,6 +513,8 @@ def voices_page():
 
 @app.route("/asr")
 def asr_page():
+    if not studio.is_asr_enabled():
+        return redirect(url_for("engine_page", engine_id=_pick_default_engine(studio.get_engine_cards())))
     context = _base_context("asr")
     context.update(max_upload_mb=MAX_UPLOAD_MB)
     return render_template("asr.html", **context)
@@ -519,6 +526,7 @@ def api_tts_status():
     return jsonify(
         {
             "ok": True,
+            "asr_enabled": studio.is_asr_enabled(),
             "summary": studio.summary(),
             "engines": [
                 {
@@ -537,6 +545,9 @@ def api_tts_status():
 
 @app.route("/api/tts/transcribe-reference", methods=["POST"])
 def api_tts_transcribe_reference():
+    if not studio.is_asr_enabled():
+        return _asr_disabled_response()
+
     upload = request.files.get("reference_audio")
     if not upload or not upload.filename:
         return jsonify({"ok": False, "error": "Cần upload audio tham chiếu để nhận diện transcript."}), 400
@@ -560,6 +571,9 @@ def api_tts_transcribe_reference():
 
 @app.route("/api/asr/transcribe", methods=["POST"])
 def api_asr_transcribe():
+    if not studio.is_asr_enabled():
+        return _asr_disabled_response()
+
     upload = request.files.get("audio")
     if not upload or not upload.filename:
         return jsonify({"ok": False, "error": "Cần upload file audio để nhận diện."}), 400
