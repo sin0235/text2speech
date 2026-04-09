@@ -36,6 +36,9 @@ except ImportError:  # pragma: no cover
         _parse_pronunciation_overrides,
     )
 
+ALLOWED_ASR_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
+MAX_ASR_DURATION_MINUTES = 60
+
 
 ROOT = Path(__file__).resolve().parent.parent
 CSS_BUNDLE_VERSION = int((ROOT / "webapp" / "static" / "css" / "style.css").stat().st_mtime)
@@ -503,11 +506,11 @@ def voices_page():
     return render_template("voices.html", **context)
 
 
-@app.route("/about")
-def about():
-    context = _base_context("about")
-    context.update(setup_steps=SETUP_STEPS)
-    return render_template("about.html", **context)
+@app.route("/asr")
+def asr_page():
+    context = _base_context("asr")
+    context.update(max_upload_mb=MAX_UPLOAD_MB)
+    return render_template("asr.html", **context)
 
 
 @app.route("/api/tts/status")
@@ -553,6 +556,59 @@ def api_tts_transcribe_reference():
         reference_path.unlink(missing_ok=True)
 
     return jsonify(_build_transcription_payload(result))
+
+
+@app.route("/api/asr/transcribe", methods=["POST"])
+def api_asr_transcribe():
+    upload = request.files.get("audio")
+    if not upload or not upload.filename:
+        return jsonify({"ok": False, "error": "Cần upload file audio để nhận diện."}), 400
+
+    extension = Path(upload.filename).suffix.lower()
+    if extension not in ALLOWED_ASR_EXTENSIONS:
+        return jsonify({"ok": False, "error": f"Định dạng audio chưa hỗ trợ. Chỉ nhận: {', '.join(sorted(ALLOWED_ASR_EXTENSIONS))}"}), 400
+
+    hotwords = (request.form.get("hotwords") or "").strip()
+    max_new_tokens_raw = (request.form.get("max_new_tokens") or "8192").strip()
+    chunk_seconds_raw = (request.form.get("tokenizer_chunk_seconds") or "60").strip()
+    return_parsed = (request.form.get("return_parsed") or "1").strip().lower() in {"1", "true", "yes", "on"}
+    dtype = (request.form.get("dtype") or "").strip() or None
+    system_prompt = (request.form.get("system_prompt") or "").strip() or None
+
+    try:
+        max_new_tokens = max(2048, min(16384, int(max_new_tokens_raw)))
+    except ValueError:
+        max_new_tokens = 8192
+    try:
+        chunk_seconds = max(5, min(60, int(chunk_seconds_raw)))
+    except ValueError:
+        chunk_seconds = 60
+
+    reference_path = studio.save_reference_file(upload.filename, upload.read())
+    try:
+        result = studio.transcribe_audio_vibevoice(
+            reference_path,
+            hotwords=hotwords,
+            max_new_tokens=max_new_tokens,
+            tokenizer_chunk_seconds=chunk_seconds,
+            return_parsed=return_parsed,
+            dtype_override=dtype,
+            system_prompt=system_prompt,
+        )
+    except TTSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Lỗi không mong muốn: {exc}"}), 500
+
+    return jsonify({
+        "ok": True,
+        "text": result.raw_text,
+        "segments": result.parsed_segments,
+        "model_id": result.model_id,
+        "duration_seconds": round(result.duration_seconds, 2),
+        "inference_seconds": round(result.inference_seconds, 2),
+        "notes": result.notes,
+    })
 
 
 @app.route("/api/tts/generate", methods=["POST"])

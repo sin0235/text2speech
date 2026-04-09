@@ -1104,6 +1104,16 @@ class TranscriptionResult:
     notes: list[str] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class VibeVoiceASRResult:
+    raw_text: str
+    parsed_segments: list[dict[str, Any]]
+    model_id: str
+    duration_seconds: float
+    inference_seconds: float
+    notes: list[str] = field(default_factory=list)
+
+
 class TTSStudioService:
     """Flask-facing service for Gwen-TTS voice cloning."""
 
@@ -1128,9 +1138,11 @@ class TTSStudioService:
         self.asr_model_id = os.getenv("ASR_MODEL_ID", "openai/whisper-small").strip() or "openai/whisper-small"
         self.asr_language = (os.getenv("ASR_LANGUAGE", "vi") or "vi").strip().lower() or "vi"
         self.asr_chunk_length_s = _clamp_int(os.getenv("ASR_CHUNK_LENGTH_S", "18"), minimum=8, maximum=30, default=18)
+        self.vibevoice_asr_model_id = os.getenv("VIBEVOICE_ASR_MODEL_ID", "microsoft/VibeVoice-ASR-HF").strip() or "microsoft/VibeVoice-ASR-HF"
         self._locks = {
             "gwen": Lock(),
             "asr": Lock(),
+            "vibevoice_asr": Lock(),
         }
         self._loaded_models: dict[str, Any] = {}
         self._gwen_import_probe: tuple[bool, str | None] | None = None
@@ -1811,6 +1823,230 @@ class TTSStudioService:
             chunk_count=len(chunks),
             reference_text_used=True,
             seed=None,
+            notes=notes,
+        )
+
+    def _load_vibevoice_asr(self, *, dtype_override: str | None = None) -> dict[str, Any]:
+        import torch
+
+        dtype_map = {
+            "bfloat16": torch.bfloat16,
+            "float16": torch.float16,
+            "float32": torch.float32,
+        }
+        resolved_dtype_name = (dtype_override or "bfloat16").strip().lower()
+        if resolved_dtype_name not in dtype_map:
+            resolved_dtype_name = "bfloat16"
+
+        cache_key = f"vibevoice_asr::{self.vibevoice_asr_model_id}::{resolved_dtype_name}"
+        with self._locks["vibevoice_asr"]:
+            cached = self._loaded_models.get(cache_key)
+            if cached is not None:
+                return cached
+
+            try:
+                from transformers import AutoProcessor, VibeVoiceAsrForConditionalGeneration
+            except ImportError:
+                try:
+                    from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq as VibeVoiceAsrForConditionalGeneration
+                except Exception as exc:
+                    raise TTSError(
+                        "Chưa cài transformers>=5.3.0. Hãy chạy `pip install -U transformers accelerate` để bật VibeVoice-ASR."
+                    ) from exc
+
+            try:
+                use_cuda = bool(torch.cuda.is_available())
+                torch_dtype = dtype_map[resolved_dtype_name]
+                processor = AutoProcessor.from_pretrained(
+                    self.vibevoice_asr_model_id,
+                    trust_remote_code=True,
+                )
+                model = VibeVoiceAsrForConditionalGeneration.from_pretrained(
+                    self.vibevoice_asr_model_id,
+                    torch_dtype=torch_dtype,
+                    device_map="auto" if use_cuda else None,
+                    trust_remote_code=True,
+                )
+                if not use_cuda:
+                    model = model.to("cpu")
+            except Exception as exc:
+                raise TTSError(f"Không thể load VibeVoice-ASR: {exc}") from exc
+
+            loaded = {
+                "model": model,
+                "processor": processor,
+                "model_id": self.vibevoice_asr_model_id,
+                "device_label": "cuda" if use_cuda else "cpu",
+                "torch_dtype": torch_dtype,
+                "dtype_name": resolved_dtype_name,
+            }
+            self._loaded_models[cache_key] = loaded
+            return loaded
+
+    def transcribe_audio_vibevoice(
+        self,
+        audio_path: Path,
+        *,
+        hotwords: str = "",
+        max_new_tokens: int = 8192,
+        tokenizer_chunk_seconds: int = 60,
+        return_parsed: bool = True,
+        dtype_override: str | None = None,
+        system_prompt: str | None = None,
+    ) -> VibeVoiceASRResult:
+        audio_path = Path(audio_path)
+        if not audio_path.exists():
+            raise TTSError("Không tìm thấy file audio để nhận diện.")
+
+        audio_np, sample_rate = _inspect_audio_mono_float(audio_path)
+        duration_seconds = float(len(audio_np) / sample_rate) if sample_rate > 0 else 0.0
+        if duration_seconds < 0.5:
+            raise TTSError("Audio quá ngắn để nhận diện. Hãy dùng đoạn nói rõ tối thiểu khoảng nửa giây.")
+
+        loaded = self._load_vibevoice_asr(dtype_override=dtype_override)
+        model = loaded["model"]
+        processor = loaded["processor"]
+
+        started = time.perf_counter()
+        try:
+            import torch
+
+            # VibeVoice-ASR hoạt động ở 24kHz nội bộ, processor tự resample
+            # Nhưng nếu cần truyền raw array thì giữ nguyên sr gốc
+            audio_input = str(audio_path)
+
+            prompt = hotwords if hotwords else None
+
+            generate_kwargs: dict[str, Any] = {"max_new_tokens": max_new_tokens}
+
+            # tokenizer_chunk_size: mỗi giây ở 24kHz = 24000 samples, hop_length = 3200
+            if tokenizer_chunk_seconds < 60:
+                raw_chunk = tokenizer_chunk_seconds * 24000
+                aligned_chunk = max(3200, (raw_chunk // 3200) * 3200)
+                generate_kwargs["tokenizer_chunk_size"] = aligned_chunk
+
+            if hasattr(processor, "apply_transcription_request"):
+                inputs = processor.apply_transcription_request(
+                    audio=audio_input,
+                    prompt=prompt,
+                )
+                device = next(model.parameters()).device
+                inputs = inputs.to(device, loaded["torch_dtype"])
+            else:
+                if sample_rate != 16000:
+                    try:
+                        import librosa
+                        audio_np = librosa.resample(audio_np, orig_sr=sample_rate, target_sr=16000)
+                    except ImportError:
+                        raise TTSError("Cần cài `librosa` để resample audio cho VibeVoice-ASR.")
+                inputs = processor(
+                    audio=np.asarray(audio_np, dtype=np.float32),
+                    sampling_rate=16000,
+                    return_tensors="pt",
+                    text=prompt or "",
+                )
+                device = next(model.parameters()).device
+                for k, v in inputs.items():
+                    if hasattr(v, "to"):
+                        inputs[k] = v.to(device, loaded["torch_dtype"]) if v.is_floating_point() else v.to(device)
+
+            with torch.no_grad():
+                output_ids = model.generate(**inputs, **generate_kwargs)
+
+            input_ids = inputs.get("input_ids")
+            if input_ids is not None and output_ids.shape[1] > input_ids.shape[1]:
+                generated_ids = output_ids[:, input_ids.shape[1]:]
+            else:
+                generated_ids = output_ids
+
+            raw_text = ""
+            parsed_segments: list[dict[str, Any]] = []
+
+            # Dùng processor.decode với return_format theo API chính thức
+            if return_parsed and hasattr(processor, "decode"):
+                try:
+                    parsed_result = processor.decode(generated_ids, return_format="parsed")
+                    if isinstance(parsed_result, list) and parsed_result:
+                        parsed_list = parsed_result[0] if isinstance(parsed_result[0], list) else parsed_result
+                        for seg in parsed_list:
+                            if isinstance(seg, dict):
+                                parsed_segments.append({
+                                    "speaker": str(seg.get("Speaker", seg.get("speaker", ""))),
+                                    "start": float(seg.get("Start", seg.get("start", 0))),
+                                    "end": float(seg.get("End", seg.get("end", 0))),
+                                    "text": str(seg.get("Content", seg.get("text", seg.get("content", "")))),
+                                })
+                except Exception:
+                    pass
+
+            if hasattr(processor, "decode"):
+                try:
+                    text_result = processor.decode(generated_ids, return_format="transcription_only")
+                    if isinstance(text_result, list):
+                        raw_text = text_result[0] if text_result else ""
+                    else:
+                        raw_text = str(text_result)
+                except Exception:
+                    try:
+                        decoded = processor.decode(generated_ids)
+                        raw_text = decoded[0] if isinstance(decoded, list) else str(decoded)
+                    except Exception:
+                        raw_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
+            # Fallback: parse JSON từ raw output nếu chưa có segments
+            if not parsed_segments and raw_text:
+                try:
+                    import json as _json
+                    json_match = re.search(r'\[.*\]', raw_text, re.DOTALL)
+                    if json_match:
+                        items = _json.loads(json_match.group(0))
+                        for seg in items:
+                            if isinstance(seg, dict):
+                                parsed_segments.append({
+                                    "speaker": str(seg.get("Speaker", seg.get("speaker", ""))),
+                                    "start": float(seg.get("Start", seg.get("start", 0))),
+                                    "end": float(seg.get("End", seg.get("end", 0))),
+                                    "text": str(seg.get("Content", seg.get("text", seg.get("content", "")))),
+                                })
+                except Exception:
+                    pass
+
+        except TTSError:
+            raise
+        except Exception as exc:
+            raise TTSError(f"VibeVoice-ASR lỗi khi transcribe: {exc}") from exc
+
+        elapsed = time.perf_counter() - started
+
+        clean_text = raw_text
+        if not clean_text and parsed_segments:
+            clean_text = " ".join(seg.get("text", "") for seg in parsed_segments)
+        clean_text = re.sub(r"<\|[^|]*\|>", "", clean_text).strip()
+
+        if not clean_text:
+            raise TTSError("VibeVoice-ASR không trả về transcript nào. Hãy thử audio rõ tiếng hơn.")
+
+        notes = [
+            f"Model: {loaded['model_id']}",
+            f"Audio dài {duration_seconds:.1f}s, inference {elapsed:.1f}s",
+            f"Device: {loaded['device_label']}, dtype: {loaded['dtype_name']}",
+        ]
+        if hotwords:
+            notes.append(f"Ngữ cảnh: {hotwords}")
+        if max_new_tokens != 8192:
+            notes.append(f"Max tokens: {max_new_tokens}")
+        if tokenizer_chunk_seconds < 60:
+            notes.append(f"Chunk: {tokenizer_chunk_seconds}s")
+        if parsed_segments:
+            speaker_count = len(set(seg.get("speaker", "") for seg in parsed_segments))
+            notes.append(f"Nhận diện {speaker_count} người nói, {len(parsed_segments)} đoạn")
+
+        return VibeVoiceASRResult(
+            raw_text=clean_text,
+            parsed_segments=parsed_segments,
+            model_id=loaded["model_id"],
+            duration_seconds=duration_seconds,
+            inference_seconds=elapsed,
             notes=notes,
         )
 

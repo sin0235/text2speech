@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vietnamese TTS Studio</title>
+    <title>Vietnamese TextVoice Studio</title>
     <meta
       name="description"
       content="Studio text to speech tiếng Việt với Gwen-TTS làm model chủ chốt."
@@ -45,8 +45,8 @@
             />
           </div>
           <div>
-            <b>Vietnamese TTS Studio</b>
-            <span>Using Qwen-TTS model</span>
+            <b>Vietnamese TextVoice Studio</b>
+            <span>Using for personal tasks</span>
           </div>
         </div>
 
@@ -63,18 +63,18 @@
             </svg>
             Voices
           </a>
-          <a href="{{ url_for('about') }}" class="{{ 'active' if active == 'about' }}">
+          <a href="{{ url_for('asr_page') }}" class="{{ 'active' if active == 'asr' }}">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8M12 1a3 3 0 00-3 3v7a3 3 0 006 0V4a3 3 0 00-3-3z" />
             </svg>
-            About
+            ASR
           </a>
         </nav>
 
         <div class="header-status"></div>
       </header>
 
-      <main class="{{ 'studio-main' if active not in ['voices', 'about'] else '' }}{{ ' voices-main' if active == 'voices' else '' }}">{% block content %}{% endblock %}</main>
+      <main class="{{ 'studio-main' if active not in ['voices', 'asr'] else '' }}{{ ' voices-main' if active == 'voices' else '' }}{{ ' asr-main' if active == 'asr' else '' }}">{% block content %}{% endblock %}</main>
 
       <footer>
         <div class="footer-inner">

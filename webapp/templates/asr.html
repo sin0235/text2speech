@@ -1,0 +1,419 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header compact-page-header">
+  <h1>Speech-to-Text</h1>
+  <p class="subtitle">Nhận diện giọng nói bằng VibeVoice-ASR. Hỗ trợ audio dài tới 60 phút, phân biệt người nói và timestamp.</p>
+</div>
+
+<div class="asr-layout">
+  <div class="asr-input-section card">
+    <div class="section-title">
+      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+      </svg>
+      Tải lên audio
+    </div>
+
+    <div class="asr-input-row">
+      <div class="asr-input-col-upload">
+        <label class="upload-box asr-upload-box" id="asrUploadBox">
+          <input type="file" id="asrAudioFile" accept=".wav,.mp3,.m4a,.flac,.ogg,.webm" />
+          <div class="upload-icon">
+            <svg width="26" height="26" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+          </div>
+          <span class="upload-title">Kéo thả hoặc bấm để chọn audio</span>
+          <span class="upload-subtitle">Hỗ trợ .wav, .mp3, .m4a, .flac, .ogg, .webm (tối đa {{ max_upload_mb }} MB)</span>
+          <span class="upload-file hidden" id="asrFileName"></span>
+        </label>
+
+        <div id="asrAudioPreview" class="asr-audio-preview hidden">
+          <audio id="asrAudioPlayer" controls class="asr-player"></audio>
+        </div>
+      </div>
+
+      <div class="asr-input-col-options">
+        <div class="form-group">
+          <label>
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+            </svg>
+            Ngữ cảnh / Hotwords
+          </label>
+          <input type="text" id="asrHotwords" class="form-control compact-input" placeholder="Ví dụ: VibeVoice, GPT-4, Transformer..." />
+          <div class="field-meta single-line">
+            <span>Nhập tên riêng, thuật ngữ chuyên ngành hoặc mô tả ngữ cảnh để tăng độ chính xác.</span>
+          </div>
+        </div>
+
+        <div class="form-actions" style="margin-top: 14px;">
+          <button type="button" id="asrTranscribeBtn" class="btn" disabled>
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8M12 1a3 3 0 00-3 3v7a3 3 0 006 0V4a3 3 0 00-3-3z" />
+            </svg>
+            Nhận diện giọng nói
+          </button>
+          <button type="button" id="asrClearBtn" class="btn btn-outline hidden">Xoá</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="advanced-settings-card" id="asrAdvancedCard" style="margin-top: 16px;">
+      <button type="button" class="advanced-settings-summary" id="asrAdvancedToggle">
+        <span>Thiết lập nâng cao</span>
+      </button>
+      <div class="advanced-settings-body hidden" id="asrAdvancedBody">
+
+        <div class="form-group">
+          <label>Định dạng đầu ra</label>
+          <div class="controls-grid">
+            <label class="toggle-row">
+              <input type="checkbox" id="asrReturnParsed" checked />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span>Phân tích chi tiết (người nói, timestamp)</span>
+            </label>
+          </div>
+          <div class="field-meta single-line">
+            <span>Bật để nhận kết quả có speaker ID và thời gian. Tắt để chỉ lấy văn bản thuần.</span>
+          </div>
+        </div>
+
+        <div class="advanced-settings-grid">
+          <div class="control-card">
+            <label>
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Max tokens
+            </label>
+            <input type="range" id="asrMaxTokens" min="2048" max="16384" step="1024" value="8192" />
+            <div class="range-meta">
+              <span>2048</span>
+              <strong id="asrMaxTokensVal">8192</strong>
+              <span>16384</span>
+            </div>
+          </div>
+
+          <div class="control-card">
+            <label>
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+              Chunk (giây)
+            </label>
+            <input type="range" id="asrChunkSeconds" min="5" max="60" step="5" value="60" />
+            <div class="range-meta">
+              <span>5s</span>
+              <strong id="asrChunkSecondsVal">60s</strong>
+              <span>60s</span>
+            </div>
+          </div>
+
+          <div class="control-card">
+            <label>Kiểu dữ liệu (dtype)</label>
+            <select id="asrDtype" class="form-control compact-input">
+              <option value="bfloat16">bfloat16 (mặc định)</option>
+              <option value="float16">float16</option>
+              <option value="float32">float32</option>
+            </select>
+          </div>
+
+          <div class="control-card">
+            <label>System prompt</label>
+            <input type="text" id="asrSystemPrompt" class="form-control compact-input" placeholder="Để trống dùng mặc định" />
+          </div>
+        </div>
+        <div class="field-meta single-line">
+          <span>Giảm chunk nếu bị lỗi thiếu VRAM. Mặc định 60s cho kết quả tốt nhất.</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div id="asrError" class="asr-error-box hidden"></div>
+  </div>
+
+  <div class="asr-result-section">
+    <div id="asrEmptyState" class="card asr-empty-card">
+      <div class="tts-output-empty">
+        <div>
+          <svg width="38" height="38" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="opacity:.4">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8M12 1a3 3 0 00-3 3v7a3 3 0 006 0V4a3 3 0 00-3-3z" />
+          </svg>
+          <p style="margin-top:12px">Tải lên audio và bấm "Nhận diện giọng nói" để bắt đầu.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="asrLoading" class="card asr-loading-card hidden">
+      <div class="asr-loading-content">
+        <div class="loading-spinner"></div>
+        <p class="loading-text">Đang nhận diện giọng nói...</p>
+        <p class="loading-subtext">VibeVoice-ASR đang xử lý audio. Thời gian phụ thuộc độ dài audio và GPU.</p>
+      </div>
+    </div>
+
+    <div id="asrResultCard" class="card hidden">
+      <div class="section-title">
+        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        Kết quả nhận diện
+      </div>
+
+      <div class="asr-result-stats result-stats" id="asrStats"></div>
+
+      <div class="asr-transcript-box" id="asrTranscriptBox">
+        <div class="asr-transcript-toolbar">
+          <button type="button" id="asrCopyBtn" class="tts-mini-btn">Copy</button>
+          <div class="asr-view-toggle">
+            <button type="button" class="tts-mini-btn asr-view-btn active" data-view="text">Văn bản</button>
+            <button type="button" class="tts-mini-btn secondary asr-view-btn" data-view="segments">Chi tiết</button>
+          </div>
+        </div>
+        <div id="asrTextView" class="asr-transcript-text"></div>
+        <div id="asrSegmentsView" class="asr-segments-list hidden"></div>
+      </div>
+
+      <div class="asr-notes-box hidden" id="asrNotesBox">
+        <div class="tips-title">Ghi chú</div>
+        <div id="asrNotes"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const fileInput = document.getElementById('asrAudioFile');
+  const uploadBox = document.getElementById('asrUploadBox');
+  const fileName = document.getElementById('asrFileName');
+  const audioPreview = document.getElementById('asrAudioPreview');
+  const audioPlayer = document.getElementById('asrAudioPlayer');
+  const hotwordsInput = document.getElementById('asrHotwords');
+  const transcribeBtn = document.getElementById('asrTranscribeBtn');
+  const clearBtn = document.getElementById('asrClearBtn');
+  const errorBox = document.getElementById('asrError');
+  const emptyState = document.getElementById('asrEmptyState');
+  const loadingCard = document.getElementById('asrLoading');
+  const resultCard = document.getElementById('asrResultCard');
+  const statsEl = document.getElementById('asrStats');
+  const textView = document.getElementById('asrTextView');
+  const segmentsView = document.getElementById('asrSegmentsView');
+  const notesBox = document.getElementById('asrNotesBox');
+  const notesEl = document.getElementById('asrNotes');
+  const copyBtn = document.getElementById('asrCopyBtn');
+
+  const advancedToggle = document.getElementById('asrAdvancedToggle');
+  const advancedBody = document.getElementById('asrAdvancedBody');
+  const advancedCard = document.getElementById('asrAdvancedCard');
+  const maxTokensSlider = document.getElementById('asrMaxTokens');
+  const maxTokensVal = document.getElementById('asrMaxTokensVal');
+  const chunkSlider = document.getElementById('asrChunkSeconds');
+  const chunkVal = document.getElementById('asrChunkSecondsVal');
+  const returnParsed = document.getElementById('asrReturnParsed');
+  const dtypeSelect = document.getElementById('asrDtype');
+  const systemPromptInput = document.getElementById('asrSystemPrompt');
+
+  let currentResult = null;
+
+  advancedToggle.addEventListener('click', function() {
+    const isOpen = !advancedBody.classList.contains('hidden');
+    advancedBody.classList.toggle('hidden', isOpen);
+    advancedCard.classList.toggle('is-open', !isOpen);
+  });
+
+  maxTokensSlider.addEventListener('input', function() {
+    maxTokensVal.textContent = this.value;
+  });
+  chunkSlider.addEventListener('input', function() {
+    chunkVal.textContent = this.value + 's';
+  });
+
+  fileInput.addEventListener('change', function() {
+    if (this.files && this.files[0]) {
+      const file = this.files[0];
+      fileName.textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)';
+      fileName.classList.remove('hidden');
+      transcribeBtn.disabled = false;
+      clearBtn.classList.remove('hidden');
+
+      const url = URL.createObjectURL(file);
+      audioPlayer.src = url;
+      audioPreview.classList.remove('hidden');
+    }
+  });
+
+  uploadBox.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    this.style.borderColor = 'rgba(37, 99, 235, 0.58)';
+  });
+  uploadBox.addEventListener('dragleave', function() {
+    this.style.borderColor = '';
+  });
+  uploadBox.addEventListener('drop', function(e) {
+    e.preventDefault();
+    this.style.borderColor = '';
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      fileInput.files = e.dataTransfer.files;
+      fileInput.dispatchEvent(new Event('change'));
+    }
+  });
+
+  clearBtn.addEventListener('click', function() {
+    fileInput.value = '';
+    fileName.textContent = '';
+    fileName.classList.add('hidden');
+    audioPreview.classList.add('hidden');
+    audioPlayer.src = '';
+    transcribeBtn.disabled = true;
+    clearBtn.classList.add('hidden');
+    errorBox.classList.add('hidden');
+    resultCard.classList.add('hidden');
+    emptyState.classList.remove('hidden');
+    currentResult = null;
+  });
+
+  transcribeBtn.addEventListener('click', async function() {
+    if (!fileInput.files || !fileInput.files[0]) return;
+
+    errorBox.classList.add('hidden');
+    emptyState.classList.add('hidden');
+    resultCard.classList.add('hidden');
+    loadingCard.classList.remove('hidden');
+    transcribeBtn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('audio', fileInput.files[0]);
+
+    const hotwords = hotwordsInput.value.trim();
+    if (hotwords) formData.append('hotwords', hotwords);
+
+    formData.append('max_new_tokens', maxTokensSlider.value);
+    formData.append('tokenizer_chunk_seconds', chunkSlider.value);
+    formData.append('return_parsed', returnParsed.checked ? '1' : '0');
+    formData.append('dtype', dtypeSelect.value);
+
+    const sysPrompt = systemPromptInput.value.trim();
+    if (sysPrompt) formData.append('system_prompt', sysPrompt);
+
+    try {
+      const response = await fetch('/api/asr/transcribe', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      loadingCard.classList.add('hidden');
+      transcribeBtn.disabled = false;
+
+      if (!data.ok) {
+        errorBox.textContent = data.error || 'Lỗi không xác định.';
+        errorBox.classList.remove('hidden');
+        emptyState.classList.remove('hidden');
+        return;
+      }
+
+      currentResult = data;
+      renderResult(data);
+    } catch (err) {
+      loadingCard.classList.add('hidden');
+      transcribeBtn.disabled = false;
+      errorBox.textContent = 'Lỗi kết nối: ' + err.message;
+      errorBox.classList.remove('hidden');
+      emptyState.classList.remove('hidden');
+    }
+  });
+
+  function renderResult(data) {
+    statsEl.innerHTML = '';
+    const stats = [
+      { label: 'Audio', value: data.duration_seconds + 's' },
+      { label: 'Inference', value: data.inference_seconds + 's' },
+      { label: 'Model', value: (data.model_id || '').split('/').pop() },
+    ];
+    if (data.segments && data.segments.length > 0) {
+      const speakers = new Set(data.segments.map(function(s) { return s.speaker; }));
+      stats.push({ label: 'Người nói', value: speakers.size });
+      stats.push({ label: 'Đoạn', value: data.segments.length });
+    }
+    stats.forEach(function(s) {
+      const el = document.createElement('div');
+      el.className = 'result-stat';
+      el.innerHTML = '<span>' + s.label + '</span><strong>' + s.value + '</strong>';
+      statsEl.appendChild(el);
+    });
+
+    textView.textContent = data.text || '';
+
+    segmentsView.innerHTML = '';
+    if (data.segments && data.segments.length > 0) {
+      data.segments.forEach(function(seg) {
+        const row = document.createElement('div');
+        row.className = 'asr-segment-row';
+        let timeStr = '';
+        if (seg.start !== undefined && seg.start > 0) {
+          timeStr = formatTime(seg.start);
+          if (seg.end && seg.end > seg.start) timeStr += ' - ' + formatTime(seg.end);
+        }
+        row.innerHTML =
+          '<div class="asr-segment-meta">' +
+            (seg.speaker ? '<span class="asr-speaker-badge">' + escapeHtml(String(seg.speaker)) + '</span>' : '') +
+            (timeStr ? '<span class="asr-time-badge">' + timeStr + '</span>' : '') +
+          '</div>' +
+          '<div class="asr-segment-text">' + escapeHtml(seg.text) + '</div>';
+        segmentsView.appendChild(row);
+      });
+    } else {
+      segmentsView.innerHTML = '<div class="empty-state small">Không có dữ liệu phân đoạn chi tiết.</div>';
+    }
+
+    if (data.notes && data.notes.length > 0) {
+      notesEl.innerHTML = data.notes.map(function(n) {
+        return '<div class="tip-line">' + escapeHtml(n) + '</div>';
+      }).join('');
+      notesBox.classList.remove('hidden');
+    } else {
+      notesBox.classList.add('hidden');
+    }
+
+    resultCard.classList.remove('hidden');
+  }
+
+  document.querySelectorAll('.asr-view-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const view = this.dataset.view;
+      document.querySelectorAll('.asr-view-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.view === view);
+        b.classList.toggle('secondary', b.dataset.view !== view);
+      });
+      textView.classList.toggle('hidden', view !== 'text');
+      segmentsView.classList.toggle('hidden', view !== 'segments');
+    });
+  });
+
+  copyBtn.addEventListener('click', function() {
+    if (!currentResult) return;
+    const text = currentResult.text || '';
+    navigator.clipboard.writeText(text).then(function() {
+      copyBtn.textContent = 'Đã copy!';
+      setTimeout(function() { copyBtn.textContent = 'Copy'; }, 1500);
+    });
+  });
+
+  function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function escapeHtml(text) {
+    const el = document.createElement('span');
+    el.textContent = text;
+    return el.innerHTML;
+  }
+})();
+</script>
+
+{% endblock %}
