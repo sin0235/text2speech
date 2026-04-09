@@ -359,13 +359,6 @@
   </form>
 </div>
 
-<div id="loadingOverlay" class="loading-overlay" style="display:none">
-  <div class="loading-content">
-    <div class="loading-spinner"></div>
-    <div class="loading-text">Đang sinh giọng nói</div>
-  </div>
-</div>
-
 <script>
   let latestAudioUrl = '';
   let latestAudioName = '';
@@ -432,8 +425,6 @@
   const autoPlayBtn = document.getElementById('autoPlayBtn');
   const historySearchInput = document.getElementById('historySearchInput');
   const historyList = document.getElementById('historyList');
-  const loadingOverlay = document.getElementById('loadingOverlay');
-  const loadingText = loadingOverlay ? loadingOverlay.querySelector('.loading-text') : null;
   const themedSelectInstances = new Map();
   let activeRequestController = null;
   let activeTranscriptionController = null;
@@ -942,13 +933,90 @@
     };
   }
 
+  let pendingHistoryItem = null;
+
+  function createPendingHistoryItem(text) {
+    const history = historyList;
+    const empty = history.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    const item = document.createElement('div');
+    item.className = 'history-item history-item-pending';
+    const previewText = summarizeHistoryText(text);
+    item.innerHTML = `
+      <div class="history-status-row">
+        <span class="history-status-badge history-badge-pending">
+          <span class="history-pending-dot"></span>
+          Đang tổng hợp
+        </span>
+        <span class="history-time history-pending-elapsed" data-start="${Date.now()}">0s</span>
+      </div>
+      <div class="history-pending-bar"><div class="history-pending-bar-fill"></div></div>
+      <div class="history-preview">${previewText || 'Đang xử lý...'}</div>
+      <div class="history-pending-status">Đang gửi yêu cầu...</div>
+    `;
+    history.prepend(item);
+    pendingHistoryItem = item;
+
+    setSidebarTab('history');
+    applyHistoryFilter();
+    startPendingTimer();
+    return item;
+  }
+
+  let pendingTimerInterval = null;
+  function startPendingTimer() {
+    stopPendingTimer();
+    pendingTimerInterval = setInterval(function() {
+      if (!pendingHistoryItem) { stopPendingTimer(); return; }
+      const el = pendingHistoryItem.querySelector('.history-pending-elapsed');
+      if (!el) return;
+      const elapsed = Math.floor((Date.now() - parseInt(el.dataset.start)) / 1000);
+      el.textContent = elapsed + 's';
+    }, 1000);
+  }
+  function stopPendingTimer() {
+    if (pendingTimerInterval) { clearInterval(pendingTimerInterval); pendingTimerInterval = null; }
+  }
+
+  function updatePendingHistoryStatus(message) {
+    if (!pendingHistoryItem) return;
+    const statusEl = pendingHistoryItem.querySelector('.history-pending-status');
+    if (statusEl && message) statusEl.textContent = message;
+  }
+
+  function replacePendingWithResult(payload) {
+    stopPendingTimer();
+    if (!pendingHistoryItem) { renderHistory(payload); return; }
+    const history = historyList;
+    const newItem = buildHistoryItemElement(payload);
+    history.replaceChild(newItem, pendingHistoryItem);
+    pendingHistoryItem = null;
+    while (history.children.length > 8) {
+      history.removeChild(history.lastElementChild);
+    }
+    applyHistoryFilter();
+  }
+
+  function replacePendingWithError(errorMessage) {
+    stopPendingTimer();
+    if (!pendingHistoryItem) return;
+    pendingHistoryItem.classList.remove('history-item-pending');
+    pendingHistoryItem.classList.add('history-item-error');
+    const badge = pendingHistoryItem.querySelector('.history-status-badge');
+    if (badge) {
+      badge.className = 'history-status-badge history-badge-error';
+      badge.innerHTML = 'Lỗi';
+    }
+    const bar = pendingHistoryItem.querySelector('.history-pending-bar');
+    if (bar) bar.remove();
+    const statusEl = pendingHistoryItem.querySelector('.history-pending-status');
+    if (statusEl) statusEl.textContent = errorMessage || 'Không thể sinh audio.';
+    pendingHistoryItem = null;
+  }
+
   function setLoadingState(title, subtitle) {
-    if (!loadingOverlay) {
-      return;
-    }
-    if (loadingText && title) {
-      loadingText.textContent = title;
-    }
+    updatePendingHistoryStatus(title);
   }
 
   function delayWithAbort(ms, signal) {
@@ -1000,9 +1068,8 @@
         return payload.result;
       }
 
-      setLoadingState(
-        payload.status === 'queued' ? 'Đang xếp hàng synthesize' : 'Đang sinh giọng nói',
-        payload.message || 'Request đã được tách nền để tránh timeout Cloudflare.',
+      updatePendingHistoryStatus(
+        payload.status === 'queued' ? 'Đang xếp hàng synthesize...' : 'Đang sinh giọng nói...'
       );
       await delayWithAbort(1500, signal);
     }
@@ -1239,11 +1306,7 @@
     }
   }
 
-  function renderHistory(payload) {
-    const history = historyList;
-    const empty = history.querySelector('.empty-state');
-    if (empty) empty.remove();
-
+  function buildHistoryItemElement(payload) {
     const item = document.createElement('div');
     item.className = 'history-item';
     const previewText = summarizeHistoryText(lastSubmissionText);
@@ -1273,6 +1336,15 @@
         </a>
       </div>
     `;
+    return item;
+  }
+
+  function renderHistory(payload) {
+    const history = historyList;
+    const empty = history.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    const item = buildHistoryItemElement(payload);
     history.prepend(item);
 
     while (history.children.length > 8) {
@@ -1410,9 +1482,8 @@
 
     lastSubmissionText = textInput.value.trim();
     activeRequestController = new AbortController();
-    setLoadingState('Đang gửi yêu cầu', 'Web sẽ chuyển sang chế độ job nền để tránh timeout qua tunnel/Cloudflare.');
-    loadingOverlay.style.display = 'flex';
     setStudioBusyState(true);
+    createPendingHistoryItem(lastSubmissionText);
 
     try {
       const formData = new FormData(this);
@@ -1424,36 +1495,29 @@
       });
       const payload = await parseApiResponse(response);
       if (!response.ok || !payload.ok) {
-        alert(payload.error || `Không thể sinh audio (HTTP ${response.status}).`);
+        replacePendingWithError(payload.error || `Không thể sinh audio (HTTP ${response.status}).`);
         return;
       }
 
       if (response.status === 202 || payload.queued) {
-        document.getElementById('resultState').classList.remove('hidden');
-        document.getElementById('resultCard').classList.add('hidden');
-        document.getElementById('resultState').textContent = 'Job đã được đưa vào nền. Đang đợi model synthesize xong...';
+        updatePendingHistoryStatus('Đã vào hàng đợi, đang chờ model...');
         const completedPayload = await pollGenerationJob(payload.job_id, activeRequestController.signal);
         renderResult(completedPayload);
-        renderHistory(completedPayload);
+        replacePendingWithResult(completedPayload);
         return;
       }
 
       renderResult(payload);
-      renderHistory(payload);
+      replacePendingWithResult(payload);
     } catch (error) {
       if (error && error.name === 'AbortError') {
-        document.getElementById('resultState').classList.remove('hidden');
-        document.getElementById('resultCard').classList.add('hidden');
-        document.getElementById('resultState').textContent = 'Đã dừng theo dõi lượt generate hiện tại. Nếu job đã chạy trên server thì audio vẫn có thể hoàn tất trong nền.';
+        replacePendingWithError('Đã huỷ. Job có thể vẫn hoàn tất trong nền.');
         return;
       }
-      alert(error && error.message ? error.message : 'Không thể kết nối tới API TTS. Hãy kiểm tra server Flask hoặc tunnel hiện tại.');
+      replacePendingWithError(error && error.message ? error.message : 'Không thể kết nối tới API TTS.');
       console.error(error);
     } finally {
       activeRequestController = null;
-      if (loadingOverlay) {
-        loadingOverlay.style.display = 'none';
-      }
       setStudioBusyState(false);
     }
   });
