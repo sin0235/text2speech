@@ -108,7 +108,7 @@ body {
 
 .logo b {
   display: block;
-  font-size: 17px;
+  font-size: 20px;
   color: var(--text);
   letter-spacing: -0.02em;
 }
@@ -3374,8 +3374,20 @@ footer {
   white-space: nowrap;
 }
 
-.voices-section-card {
+.voices-main {
+  width: min(1440px, calc(100% - 32px));
+}
+
+.vp-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 18px;
+  align-items: start;
   margin-bottom: 20px;
+}
+
+.voices-section-card {
+  margin-bottom: 0;
   background:
     radial-gradient(circle at 5% 15%, rgba(139, 92, 246, 0.04), transparent 40%),
     radial-gradient(circle at 95% 85%, rgba(37, 99, 235, 0.03), transparent 40%),
@@ -3456,7 +3468,9 @@ footer {
 }
 
 .vp-clone-section {
-  margin-bottom: 20px;
+  position: sticky;
+  top: 80px;
+  margin-bottom: 0;
   border-radius: var(--radius-lg);
   background: var(--card);
   border: 1px solid var(--border);
@@ -3467,8 +3481,8 @@ footer {
 .vp-clone-banner {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 20px 28px;
+  gap: 14px;
+  padding: 16px 20px;
   background:
     radial-gradient(circle at 10% 50%, rgba(139, 92, 246, 0.08), transparent 40%),
     linear-gradient(135deg, rgba(248,244,255,0.98), rgba(255,255,255,0.98));
@@ -3476,8 +3490,8 @@ footer {
 }
 
 .vp-clone-banner-icon {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3488,7 +3502,7 @@ footer {
 }
 
 .vp-clone-banner-text h2 {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 800;
   color: var(--text);
   letter-spacing: -0.02em;
@@ -3502,7 +3516,7 @@ footer {
 }
 
 .vp-clone-section .voices-clone-form {
-  padding: 20px 28px 24px;
+  padding: 16px 20px 20px;
 }
 
 .vp-tips-bar {
@@ -3543,6 +3557,12 @@ footer {
   .vp-hero-title {
     font-size: 20px;
   }
+  .vp-layout {
+    grid-template-columns: 1fr;
+  }
+  .vp-clone-section {
+    position: static;
+  }
   .vl-header {
     flex-direction: column;
     align-items: flex-start;
@@ -3570,6 +3590,26 @@ footer {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  align-items: stretch;
+}
+
+.voices-clone-grid .form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.voices-clone-grid .form-control {
+  flex: 1;
+  resize: none;
+}
+
+.voices-clone-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.voices-clone-stack .form-control {
+  min-height: 114px;
 }
 
 .voices-clone-actions {

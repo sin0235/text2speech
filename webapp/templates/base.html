@@ -11,16 +11,16 @@
     <link
       rel="icon"
       type="image/png"
-      href="{{ url_for('static', filename='images/logo.png', v=static_version) }}"
+      href="{{ url_for('static', filename='images/logo_ubgr.png', v=static_version) }}"
     />
     <link
       rel="shortcut icon"
       type="image/png"
-      href="{{ url_for('static', filename='images/logo.png', v=static_version) }}"
+      href="{{ url_for('static', filename='images/logo_ubgr.png', v=static_version) }}"
     />
     <link
       rel="apple-touch-icon"
-      href="{{ url_for('static', filename='images/logo.png', v=static_version) }}"
+      href="{{ url_for('static', filename='images/logo_ubgr.png', v=static_version) }}"
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -74,7 +74,7 @@
         <div class="header-status"></div>
       </header>
 
-      <main class="{{ 'studio-main' if active not in ['voices', 'about'] else '' }}">{% block content %}{% endblock %}</main>
+      <main class="{{ 'studio-main' if active not in ['voices', 'about'] else '' }}{{ ' voices-main' if active == 'voices' else '' }}">{% block content %}{% endblock %}</main>
 
       <footer>
         <div class="footer-inner">

@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
 
+<div class="vp-layout">
+
 <div class="card voices-section-card">
   <div class="vl-header">
     <div class="section-title voices-section-title">
@@ -97,7 +99,7 @@
   </div>
 
   <form id="cloneVoiceForm" enctype="multipart/form-data" class="voices-clone-form">
-    <div class="voices-clone-grid">
+    <div class="voices-clone-stack">
       <div class="form-group">
         <label for="cloneReferenceAudio">
           <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -145,20 +147,8 @@
   </form>
 </div>
 
-<div class="vp-tips-bar">
-  <div class="vp-tip">
-    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z"/></svg>
-    Click vào giọng để nghe thử
-  </div>
-  <div class="vp-tip">
-    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-    Nhấn "Sử dụng" để dùng ngay trong Studio
-  </div>
-  <div class="vp-tip">
-    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M12 2a10 10 0 100 20 10 10 0 000-20z"/></svg>
-    Clone cần GPU CUDA để hoạt động
-  </div>
 </div>
+
 
 
 <script>
