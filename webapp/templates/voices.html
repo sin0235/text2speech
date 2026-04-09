@@ -1,108 +1,339 @@
 {% extends "base.html" %}
 {% block content %}
 
-  <div class="page-header">
-  <h1>Gwen-TTS</h1>
-  <p class="subtitle">Engine chính cho voice cloning tiếng Việt.</p>
-</div>
-
-{% set card = engine_cards[0] %}
-<div class="comparison-grid">
-  <div class="card comparison-card">
-    <div class="comparison-head">
-      <div>
-        <div class="comparison-title">{{ card.label }}</div>
-        <div class="comparison-subtitle">{{ card.output_quality }}</div>
-      </div>
-      <span class="inline-status {% if card.ready %}inline-status-ready{% else %}inline-status-offline{% endif %}">
-        {% if card.ready %}Ready{% else %}Unavailable{% endif %}
-      </span>
+<div class="card voices-section-card">
+  <div class="vl-header">
+    <div class="section-title voices-section-title">
+      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8m-4-8a3 3 0 100-6 3 3 0 000 6z" />
+      </svg>
+      {{ preset_voices_payload|length }} giọng có sẵn
     </div>
-
-    <p class="comparison-text">{{ card.headline }}</p>
-
-    <div class="info-grid">
-      <div class="info-item">
-        <div class="info-label">Dùng khi</div>
-        <div class="info-val">{{ card.recommended_for }}</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">Transcript</div>
-        <div class="info-val">Bắt buộc</div>
-      </div>
+    <div class="vl-search-wrap">
+      <svg class="vl-search-icon" width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-width="2" d="m21 21-4.35-4.35"/></svg>
+      <input type="text" class="vl-search" id="vlSearchInput" placeholder="Tìm giọng..." autocomplete="off" />
     </div>
-
-    <div class="voice-tip-box">
-      <div class="voice-tip-title">Audio mẫu</div>
-      <div class="voice-tip-text">{{ card.reference_hint }}</div>
-    </div>
-
-    <div class="engine-metadata">
-      {% for key, value in card.metadata.items() %}
-      {% if key != "model_selection" %}
-      <div class="metadata-line">
-        <span>{{ key }}</span>
-        <strong>{{ value }}</strong>
-      </div>
-      {% endif %}
-      {% endfor %}
-    </div>
-
-    {% if card.warning %}
-    <div class="voice-tip-box subtle-tip-box">
-      <div class="voice-tip-title">Lưu ý</div>
-      <div class="voice-tip-text">{{ card.warning }}</div>
-    </div>
-    {% endif %}
-  </div>
-</div>
-
-<div class="card">
-  <div class="section-title">
-    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-    </svg>
-    Checklist cho giọng mẫu
   </div>
 
-  <div class="stack-list">
-    {% for tip in reference_tips %}
-    <div class="stack-row">{{ tip }}</div>
+  <div class="vl-list" id="vlList">
+    {% for voice in preset_voices_payload %}
+    <div class="vl-row" data-voice-id="{{ voice.id }}" data-voice-name="{{ voice.name|lower }}" data-voice-style="{{ (voice.style or '')|lower }}" tabindex="0"
+         role="button" aria-pressed="false" aria-label="Phát thử giọng {{ voice.name }}">
+
+      <div class="vl-left">
+        <div class="vl-avatar-wrap vl-color-{{ loop.index0 % 10 }}">
+          <div class="vl-avatar"></div>
+          <div class="vl-avatar-overlay">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="white" aria-hidden="true">
+              <path d="M21.4 12.9C22.2 12.5 22.2 11.5 21.4 11.1L7.7 3.2C7 2.7 6 3.2 6 4.1V19.9C6 20.8 7 21.3 7.7 20.8Z"/>
+            </svg>
+          </div>
+          <div class="sound-wave"><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+
+        <div class="vl-info">
+          <h4 class="vl-name">{{ voice.name }}</h4>
+          <p class="vl-sub">{{ voice.reference_text[:60] }}{% if voice.reference_text|length > 60 %}...{% endif %}</p>
+        </div>
+      </div>
+
+      <div class="vl-right">
+        <div class="vl-tags">
+          <span class="vl-tag vl-tag-lang">
+            <svg class="vl-flag" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#DA251D"/><path d="M12 4.5l2.4 5.3h5.7l-4.6 3.4 1.7 5.3L12 15.1l-5.2 3.4 1.7-5.3-4.6-3.4h5.7z" fill="#FFCD00"/></svg>Tiếng Việt
+          </span>
+          {% if voice.style %}
+          <span class="vl-tag">{{ voice.style }}</span>
+          {% endif %}
+        </div>
+
+        <div class="vl-actions">
+          <audio class="vl-audio" data-src="{{ voice.audio_url }}" preload="none"></audio>
+
+          <button type="button" class="vl-btn-use" aria-label="Sử dụng giọng {{ voice.name }}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8"/>
+              <path d="M21 3v5h-5"/>
+              <path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16"/>
+              <path d="M8 16H3v5"/>
+            </svg>
+            <span class="vl-btn-use-label">Sử dụng</span>
+          </button>
+
+          <div class="vl-utils">
+            <button type="button" class="vl-util-btn vl-play-trigger" aria-label="Phát thử" title="Phát thử">
+              <svg class="vl-ic-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72a1 1 0 001.53.85l10.86-6.86a1 1 0 000-1.7L9.53 4.29A1 1 0 008 5.14z"/></svg>
+              <svg class="vl-ic-pause" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+            </button>
+            <a class="vl-util-btn" href="{{ voice.audio_url }}" download="{{ voice.name }}.wav" aria-label="Tải xuống giọng {{ voice.name }}" title="Tải xuống">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor"><path d="M7.5 1.05a.45.45 0 01.45.45v6.914l2.232-2.232a.45.45 0 01.636.636l-3 3a.45.45 0 01-.636 0l-3-3a.45.45 0 11.636-.636L7.05 8.414V1.5a.45.45 0 01.45-.45zM2.5 10a.5.5 0 01.5.5V12c0 .554.446 1 .996 1h7.005c.552 0 .999-.447.999-1v-1.5a.5.5 0 011 0V12a2 2 0 01-2 2H3.996A1.996 1.996 0 012 12v-1.5a.5.5 0 01.5-.5z" fill-rule="evenodd" clip-rule="evenodd"/></svg>
+            </a>
+            <button type="button" class="vl-util-btn vl-copy-id" data-voice-id="{{ voice.id }}" aria-label="Sao chép ID giọng {{ voice.name }}" title="Sao chép ID">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
     {% endfor %}
   </div>
-</div>
-
-<div class="card">
-  <div class="section-title">
-    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-    </svg>
-    Quy trình đề xuất
-  </div>
-
-  <div class="workflow-grid">
-    <div class="workflow-step">
-      <span class="workflow-index">1</span>
-      <div>
-        <strong>Chuẩn bị câu mẫu</strong>
-        <p>Giữ câu mẫu rõ chữ, ít nhiễu, có transcript chính xác.</p>
-      </div>
-    </div>
-    <div class="workflow-step">
-      <span class="workflow-index">3</span>
-      <div>
-        <strong>Sinh audio ngắn trước</strong>
-        <p>Render một đoạn 1-2 câu để kiểm tra dấu thanh, tốc độ đọc và độ bám chất giọng.</p>
-      </div>
-    </div>
-    <div class="workflow-step">
-      <span class="workflow-index">4</span>
-      <div>
-        <strong>Chia script dài</strong>
-        <p>Nếu bản voice-over dài, tách thành block ngắn để dễ chỉnh sửa và giữ chất lượng ổn định.</p>
-      </div>
-    </div>
+  <div class="vl-empty hidden" id="vlEmpty">
+    <svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke-width="1.5"/><path stroke-linecap="round" stroke-width="2" d="m21 21-4.35-4.35"/></svg>
+    <p>Không tìm thấy giọng nào phù hợp.</p>
   </div>
 </div>
+
+<div class="vp-clone-section">
+  <div class="vp-clone-banner">
+    <div class="vp-clone-banner-icon">
+      <svg width="28" height="28" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.536 8.464a5 5 0 010 7.072M12 6.253v11.494m0 0A8.978 8.978 0 017.5 15.5M12 17.747A8.978 8.978 0 0016.5 15.5M8.464 15.536a5 5 0 010-7.072" />
+      </svg>
+    </div>
+    <div class="vp-clone-banner-text">
+      <h2>Clone giọng nói</h2>
+      <p>Tạo giọng riêng từ audio mẫu 3-15 giây. Giọng rõ, ít nhiễu cho kết quả tốt nhất.</p>
+    </div>
+  </div>
+
+  <form id="cloneVoiceForm" enctype="multipart/form-data" class="voices-clone-form">
+    <div class="voices-clone-grid">
+      <div class="form-group">
+        <label for="cloneReferenceAudio">
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          Audio mẫu
+        </label>
+        <label class="upload-box compact-upload-box" for="cloneReferenceAudio">
+          <input id="cloneReferenceAudio" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*" />
+          <div class="upload-title">Chọn file audio</div>
+          <div class="upload-file" id="cloneUploadFileLabel">Chưa chọn file nào</div>
+        </label>
+      </div>
+
+      <div class="form-group">
+        <label for="cloneReferenceText">
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Transcript
+        </label>
+        <textarea id="cloneReferenceText" rows="3" class="form-control" placeholder="Nhập đúng câu có trong audio mẫu..."></textarea>
+      </div>
+    </div>
+
+    <div class="tts-inline-hint reference-transcribe-status hidden" id="cloneTranscribeStatus">
+      <span id="cloneTranscribeStatusLabel"></span>
+    </div>
+
+    <div class="voices-clone-actions">
+      <button class="voices-clone-btn voices-clone-btn-primary" type="button" id="cloneTranscribeBtn" disabled>
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8" />
+        </svg>
+        Nhận diện transcript
+      </button>
+      <a class="voices-clone-btn voices-clone-btn-secondary" id="cloneUseInStudioBtn" href="{{ url_for('engine_page', engine_id='gwen') }}" style="pointer-events:none;opacity:0.5">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        Mở Studio
+      </a>
+    </div>
+  </form>
+</div>
+
+<div class="vp-tips-bar">
+  <div class="vp-tip">
+    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z"/></svg>
+    Click vào giọng để nghe thử
+  </div>
+  <div class="vp-tip">
+    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+    Nhấn "Sử dụng" để dùng ngay trong Studio
+  </div>
+  <div class="vp-tip">
+    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M12 2a10 10 0 100 20 10 10 0 000-20z"/></svg>
+    Clone cần GPU CUDA để hoạt động
+  </div>
+</div>
+
+
+<script>
+(function() {
+  let activePlayer = null;
+
+  function stopActive() {
+    if (!activePlayer) return;
+    const row = activePlayer.closest('.vl-row');
+    activePlayer.pause();
+    activePlayer.currentTime = 0;
+    if (row) {
+      row.classList.remove('is-playing');
+      const btn = row.querySelector('.vl-play-trigger');
+      if (btn) togglePlayIcon(btn, false);
+    }
+    activePlayer = null;
+  }
+
+  function togglePlayIcon(btn, playing) {
+    btn.querySelector('.vl-ic-play').style.display = playing ? 'none' : '';
+    btn.querySelector('.vl-ic-pause').style.display = playing ? '' : 'none';
+    btn.classList.toggle('is-playing', playing);
+  }
+
+  function playVoice(row) {
+    const audio = row.querySelector('.vl-audio');
+    const btn = row.querySelector('.vl-play-trigger');
+    if (!audio || !btn) return;
+
+    if (activePlayer === audio && !audio.paused) {
+      stopActive();
+      return;
+    }
+    stopActive();
+
+    if (!audio.src && audio.dataset.src) audio.src = audio.dataset.src;
+    audio.play().catch(function(){});
+    togglePlayIcon(btn, true);
+    row.classList.add('is-playing');
+    activePlayer = audio;
+
+    audio.onended = function() {
+      row.classList.remove('is-playing');
+      togglePlayIcon(btn, false);
+      activePlayer = null;
+    };
+  }
+
+  document.querySelectorAll('.vl-row').forEach(function(row) {
+    row.addEventListener('click', function(e) {
+      if (e.target.closest('.vl-btn-use') || e.target.closest('.vl-util-btn')) return;
+      playVoice(row);
+    });
+
+    var useBtn = row.querySelector('.vl-btn-use');
+    if (useBtn) {
+      useBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var voiceId = row.getAttribute('data-voice-id');
+        window.location.href = "{{ url_for('engine_page', engine_id='gwen') }}?voice=" + encodeURIComponent(voiceId);
+      });
+    }
+  });
+
+  document.querySelectorAll('.vl-play-trigger').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      playVoice(btn.closest('.vl-row'));
+    });
+  });
+
+  document.querySelectorAll('.vl-copy-id').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var vid = btn.getAttribute('data-voice-id');
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(vid).then(function(){
+          btn.title = 'Đã sao chép!';
+          setTimeout(function(){ btn.title = 'Sao chép ID'; }, 1500);
+        });
+      }
+    });
+  });
+
+  /* ── search ──────────────────── */
+  var searchInput = document.getElementById('vlSearchInput');
+  var vlList = document.getElementById('vlList');
+  var vlEmpty = document.getElementById('vlEmpty');
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
+      var q = this.value.trim().toLowerCase();
+      var rows = vlList.querySelectorAll('.vl-row');
+      var visible = 0;
+      rows.forEach(function(r) {
+        var name = r.getAttribute('data-voice-name') || '';
+        var style = r.getAttribute('data-voice-style') || '';
+        var show = !q || name.indexOf(q) !== -1 || style.indexOf(q) !== -1;
+        r.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+      vlEmpty.classList.toggle('hidden', visible > 0);
+    });
+  }
+
+  /* ── clone section ─────────────── */
+  var cloneAudio = document.getElementById('cloneReferenceAudio');
+  var cloneText = document.getElementById('cloneReferenceText');
+  var cloneLabel = document.getElementById('cloneUploadFileLabel');
+  var cloneTranscribeBtn = document.getElementById('cloneTranscribeBtn');
+  var cloneStatus = document.getElementById('cloneTranscribeStatus');
+  var cloneStatusLabel = document.getElementById('cloneTranscribeStatusLabel');
+  var cloneUseBtn = document.getElementById('cloneUseInStudioBtn');
+  var MAX_UPLOAD_MB = {{ max_upload_mb|tojson }};
+  var MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
+  function syncCloneBtn() {
+    var hasAudio = cloneAudio && cloneAudio.files && cloneAudio.files[0];
+    var hasText = cloneText && cloneText.value.trim();
+    if (hasAudio && hasText) {
+      cloneUseBtn.style.pointerEvents = 'auto';
+      cloneUseBtn.style.opacity = '1';
+    } else {
+      cloneUseBtn.style.pointerEvents = 'none';
+      cloneUseBtn.style.opacity = '0.5';
+    }
+  }
+
+  if (cloneAudio) {
+    cloneAudio.addEventListener('change', function() {
+      var file = this.files && this.files[0];
+      cloneLabel.textContent = file
+        ? file.name + ' - ' + (file.size / 1024 / 1024).toFixed(2) + ' MB'
+        : 'Chưa có file nào được chọn';
+      cloneTranscribeBtn.disabled = !file;
+      syncCloneBtn();
+    });
+  }
+  if (cloneText) cloneText.addEventListener('input', syncCloneBtn);
+
+  if (cloneTranscribeBtn) {
+    cloneTranscribeBtn.addEventListener('click', async function() {
+      var file = cloneAudio && cloneAudio.files && cloneAudio.files[0];
+      if (!file) return;
+      if (file.size > MAX_UPLOAD_BYTES) {
+        cloneStatus.classList.remove('hidden');
+        cloneStatus.classList.add('is-error');
+        cloneStatusLabel.textContent = 'File vượt quá ' + MAX_UPLOAD_MB + ' MB.';
+        return;
+      }
+      cloneTranscribeBtn.disabled = true;
+      cloneStatus.classList.remove('hidden','is-success','is-error');
+      cloneStatus.classList.add('is-loading');
+      cloneStatusLabel.textContent = 'Đang nhận diện transcript...';
+      try {
+        var fd = new FormData();
+        fd.set('reference_audio', file);
+        var resp = await fetch('/api/tts/transcribe-reference', {method:'POST', body:fd});
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.error || 'Lỗi nhận diện.');
+        cloneText.value = data.text || '';
+        cloneStatus.classList.remove('is-loading');
+        cloneStatus.classList.add('is-success');
+        cloneStatusLabel.textContent = 'Đã nhận diện transcript.' + (data.duration_seconds ? ' Audio khoảng ' + data.duration_seconds + 's.' : '');
+        cloneText.dispatchEvent(new Event('input'));
+      } catch(err) {
+        cloneStatus.classList.remove('is-loading');
+        cloneStatus.classList.add('is-error');
+        cloneStatusLabel.textContent = err.message || 'Không thể nhận diện transcript.';
+      } finally {
+        cloneTranscribeBtn.disabled = !(cloneAudio.files && cloneAudio.files[0]);
+      }
+    });
+  }
+})();
+</script>
 
 {% endblock %}

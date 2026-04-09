@@ -46,7 +46,7 @@
           </div>
           <div>
             <b>Vietnamese TTS Studio</b>
-            <span>{{ status_summary.default_engine }} engine</span>
+            <span>Using Qwen-TTS model</span>
           </div>
         </div>
 
@@ -71,10 +71,7 @@
           </a>
         </nav>
 
-        <div class="header-status">
-          <span class="status-pill">Gwen-TTS</span>
-          <span class="status-pill status-pill-muted">{{ status_summary.device_label }}</span>
-        </div>
+        <div class="header-status"></div>
       </header>
 
       <main class="{{ 'studio-main' if active not in ['voices', 'about'] else '' }}">{% block content %}{% endblock %}</main>
@@ -84,8 +81,6 @@
           <span>© 2026 Sin Tran</span>
           <span class="footer-sep">·</span>
           <span>Vietnamese TTS Studio</span>
-          <span class="footer-sep">·</span>
-          <span>{{ status_summary.default_engine }}</span>
         </div>
       </footer>
     </div>

@@ -484,7 +484,22 @@ def engine_page(engine_id: str):
 @app.route("/voices")
 def voices_page():
     context = _base_context("voices")
-    context.update(reference_tips=REFERENCE_TIPS)
+    preset_voices = studio.get_preset_voices("gwen")
+    context.update(
+        reference_tips=REFERENCE_TIPS,
+        max_upload_mb=MAX_UPLOAD_MB,
+        preset_voices_payload=[
+            {
+                "id": voice.id,
+                "name": voice.name,
+                "avatar": voice.avatar,
+                "style": voice.style,
+                "reference_text": voice.reference_text,
+                "audio_url": url_for("static", filename=f"voice_presets/{voice.audio_filename}"),
+            }
+            for voice in preset_voices
+        ],
+    )
     return render_template("voices.html", **context)
 
 

@@ -28,17 +28,15 @@ class ApiErrorHandlingTest(unittest.TestCase):
 
         html = response.get_data(as_text=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn("10 giọng có sẵn", html)
         self.assertIn("Yến Nhi", html)
         self.assertIn("NSND Kim Cúc", html)
-        self.assertIn("Cài đặt nâng cao", html)
-        self.assertIn("Cài Đặt Phát Âm", html)
         self.assertIn('id="advancedGwenSettings"', html)
         self.assertIn('id="advancedGwenSettingsToggle"', html)
         self.assertIn('id="pronunciationSettings"', html)
         self.assertIn('id="pronunciationSettingsToggle"', html)
         self.assertIn('maxlength="5000"', html)
         self.assertIn("0 / 5000", html)
+        self.assertIn('id="textProgressBar"', html)
 
     def test_unknown_engine_page_returns_404(self) -> None:
         response = self.client.get("/studio/does-not-exist")

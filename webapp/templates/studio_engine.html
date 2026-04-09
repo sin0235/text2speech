@@ -8,9 +8,19 @@
     </div>
 
     <div class="tts-workbench-pills">
-      <span class="tts-top-pill">{{ engine_card.label }}</span>
-      <span class="tts-top-pill">{{ status_summary.device_label }}</span>
-      <span class="tts-top-pill">{% if engine_card.ready %}Sẵn sàng generate{% else %}Chưa sẵn sàng{% endif %}</span>
+      <span class="tts-top-pill {% if engine_card.ready %}tts-top-pill-ready{% else %}tts-top-pill-warning{% endif %}">
+        {% if engine_card.ready %}
+        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+        Sẵn sàng
+        {% else %}
+        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z"/></svg>
+        Chưa sẵn sàng
+        {% endif %}
+      </span>
+      <span class="tts-top-pill tts-top-pill-device">
+        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
+        {{ status_summary.device_label }}
+      </span>
     </div>
   </div>
 
@@ -25,7 +35,7 @@
           <textarea
             id="textInput"
             name="text"
-            rows="12"
+            rows="5"
             maxlength="{{ text_input_limit }}"
             class="tts-editor-input"
             placeholder="Nhập nội dung tiếng Việt cần chuyển thành giọng nói..."
@@ -35,7 +45,7 @@
         <div class="tts-editor-foot">
           <div class="tts-editor-tags">
             <button type="button" class="tts-language-pill tts-language-picker">
-              <span class="tts-flag-dot">VN</span>
+              <span class="tts-flag-dot"><svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="12" fill="#da251d"/><polygon points="12,5 13.8,10.5 19.6,10.5 14.9,13.8 16.7,19.3 12,16 7.3,19.3 9.1,13.8 4.4,10.5 10.2,10.5" fill="#ffcd00"/></svg></span>
               <span>Tiếng Việt</span>
             </button>
             <button class="tts-ghost-btn tts-autoplay-btn" type="button" id="autoPlayBtn" aria-pressed="true" title="Tự phát audio sau khi sinh xong">
@@ -51,11 +61,19 @@
 
           <div class="tts-editor-actions">
             <div class="tts-editor-meta">
-              <span class="tts-engine-chip">{{ engine_card.label }}</span>
               <span id="textCount" class="tts-editor-count">0 / {{ text_input_limit }}</span>
             </div>
-            <button class="tts-submit-btn" type="submit" id="generateBtn" {% if not engine_card.ready %}disabled{% endif %}>Chuyển Đổi</button>
+            <button class="tts-submit-btn" type="submit" id="generateBtn" {% if not engine_card.ready %}disabled{% endif %}>
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Chuyển Đổi
+            </button>
           </div>
+        </div>
+        <div class="tts-text-progress" id="textProgressWrap">
+          <div class="tts-text-progress-bar" id="textProgressBar"></div>
         </div>
       </div>
 
@@ -114,65 +132,79 @@
     <aside class="tts-sidebar">
       <div class="tts-sidebar-frame">
         <div class="tts-sidebar-tabs">
-          <button type="button" class="tts-sidebar-tab active" id="settingsTabBtn">Cài Đặt</button>
-          <button type="button" class="tts-sidebar-tab" id="historyTabBtn">Lịch Sử</button>
+          <button type="button" class="tts-sidebar-tab active" id="settingsTabBtn">
+            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <circle cx="12" cy="12" r="3" stroke-width="2" />
+            </svg>
+            Cài Đặt
+          </button>
+          <button type="button" class="tts-sidebar-tab" id="historyTabBtn">
+            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Lịch Sử
+          </button>
         </div>
 
         <div class="tts-sidebar-panel active" id="settingsPanel">
           <div class="tts-sidebar-scroll">
         <section class="tts-side-card">
-          <div class="tts-side-card-title">Giọng Nói</div>
-
-          {% if engine_card.id == "gwen" and preset_voices_payload %}
-          <div class="voice-source-toggle studio-toggle-full">
-            <button type="button" class="voice-source-btn active" id="presetModeBtn">{{ preset_voices_payload|length }} giọng có sẵn</button>
-            <button type="button" class="voice-source-btn" id="customModeBtn">Clone audio riêng</button>
+          <div class="tts-side-card-title">
+            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8m-4-8a3 3 0 100-6 3 3 0 000 6z"/></svg>
+            Giọng Nói
           </div>
 
+          {% if engine_card.id == "gwen" and preset_voices_payload %}
           <div id="presetVoiceSection" class="preset-voice-section preset-voice-section-compact">
+            <div class="voice-preview-card" id="voicePreviewCard">
+              <div class="voice-preview-avatar vl-color-0" id="voicePreviewAvatar"><div class="sound-wave"><span></span><span></span><span></span><span></span><span></span></div></div>
+              <div class="voice-preview-info">
+                <div class="voice-preview-name" id="voicePreviewName">{{ preset_voices_payload[0].name }}</div>
+                <div class="voice-preview-style" id="voicePreviewStyle">{{ preset_voices_payload[0].style }}</div>
+              </div>
+            </div>
+
             <select id="presetVoiceSelect" name="preset_voice_id" class="form-control tts-side-input preset-voice-select">
               {% for voice in preset_voices_payload %}
               <option value="{{ voice.id }}">{{ voice.name }}{% if voice.style %} · {{ voice.style }}{% endif %}</option>
               {% endfor %}
             </select>
+
             <div class="preset-voice-detail preset-voice-detail-compact">
               <audio id="presetVoicePlayer" controls class="player compact-player"></audio>
             </div>
           </div>
 
-          <div class="form-group tts-side-form-group" id="customReferenceGroup">
-            <label for="referenceAudio">Audio clone</label>
-            <label class="upload-box compact-upload-box" for="referenceAudio">
-              <input id="referenceAudio" name="reference_audio" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*" />
-              <div class="upload-title">Chọn file audio</div>
-              <div class="upload-file" id="uploadFileLabel">Chưa có file nào được chọn</div>
-            </label>
-            <div class="tts-inline-hint reference-transcribe-status hidden" id="referenceTranscribeStatus">
-              <span id="referenceTranscribeStatusLabel">Chưa nhận diện transcript từ audio clone.</span>
-            </div>
-          </div>
+          <a href="{{ url_for('voices_page') }}" class="voice-browse-link">
+            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+            Khám phá {{ preset_voices_payload|length }} giọng nói + Cloning voices
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
+          </a>
 
-          <div class="form-group tts-side-form-group">
-            <label for="referenceText">Transcript</label>
-            <textarea
-              id="referenceText"
-              name="reference_text"
-              rows="2"
-              class="form-control"
-              placeholder="Transcript đúng với audio tham chiếu"
-            ></textarea>
-          </div>
+          <input type="hidden" id="referenceText" name="reference_text" value="" />
+          <input type="hidden" id="referenceAudio" name="reference_audio" value="" />
           {% endif %}
         </section>
 
         {% if engine_card.id == "gwen" and gwen_settings_payload %}
         <div class="tts-advanced-actions-row">
           <section class="advanced-settings-card advanced-modal-card" id="advancedGwenSettings">
-            <button class="advanced-settings-summary advanced-modal-trigger" type="button" id="advancedGwenSettingsToggle" data-modal-target="advancedGwenSettingsModal" aria-haspopup="dialog" aria-expanded="false" aria-controls="advancedGwenSettingsModal">Cài đặt nâng cao</button>
+            <button class="advanced-settings-summary advanced-modal-trigger" type="button" id="advancedGwenSettingsToggle" data-modal-target="advancedGwenSettingsModal" aria-haspopup="dialog" aria-expanded="false" aria-controls="advancedGwenSettingsModal">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+              Nâng cao
+            </button>
           </section>
 
           <section class="advanced-settings-card advanced-modal-card" id="pronunciationSettings">
-            <button class="advanced-settings-summary advanced-modal-trigger" type="button" id="pronunciationSettingsToggle" data-modal-target="pronunciationSettingsModal" aria-haspopup="dialog" aria-expanded="false" aria-controls="pronunciationSettingsModal">Cài Đặt Phát Âm</button>
+            <button class="advanced-settings-summary advanced-modal-trigger" type="button" id="pronunciationSettingsToggle" data-modal-target="pronunciationSettingsModal" aria-haspopup="dialog" aria-expanded="false" aria-controls="pronunciationSettingsModal">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+              </svg>
+              Phát âm
+            </button>
           </section>
         </div>
 
@@ -186,53 +218,56 @@
             <div class="studio-modal-dialog" role="dialog" aria-labelledby="advancedGwenSettingsModalTitle" tabindex="-1">
               <div class="studio-modal-header">
                 <div>
-                  <h2 class="studio-modal-title" id="advancedGwenSettingsModalTitle">Cài đặt nâng cao</h2>
+                  <h2 class="studio-modal-title" id="advancedGwenSettingsModalTitle">
+                    <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+                    Cài đặt nâng cao
+                  </h2>
                   <p class="studio-modal-subtitle">Tinh chỉnh generation của Gwen-TTS trước khi synthesize.</p>
                 </div>
-                <button type="button" class="studio-modal-close" data-modal-close="true" aria-label="Đóng popup">×</button>
+                <button type="button" class="studio-modal-close" data-modal-close="true" aria-label="Đóng popup"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
               </div>
 
               <div class="studio-modal-panel" id="advancedGwenSettingsBody">
                 <div class="advanced-settings-grid">
                   <div class="control-card">
-                    <label for="speedRange">Tốc độ</label>
+                    <label for="speedRange"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Tốc độ</label>
                     <input id="speedRange" name="speed" type="range" min="{{ gwen_settings_payload.ranges.speed.min }}" max="{{ gwen_settings_payload.ranges.speed.max }}" step="{{ gwen_settings_payload.ranges.speed.step }}" value="{{ gwen_settings_payload.defaults.speed }}" />
                     <div class="range-meta"><span>Chậm</span><strong id="speedValue">{{ "%.2f"|format(gwen_settings_payload.defaults.speed) }}x</strong><span>Nhanh</span></div>
                   </div>
 
                   <div class="control-card">
-                    <label for="gwenTemperature">Temperature</label>
+                    <label for="gwenTemperature"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/></svg>Temperature</label>
                     <input id="gwenTemperature" name="gwen_temperature" type="range" min="{{ gwen_settings_payload.ranges.temperature.min }}" max="{{ gwen_settings_payload.ranges.temperature.max }}" step="{{ gwen_settings_payload.ranges.temperature.step }}" value="{{ gwen_settings_payload.defaults.temperature }}" />
                     <div class="range-meta"><span>Ổn định</span><strong id="gwenTemperatureValue">{{ "%.1f"|format(gwen_settings_payload.defaults.temperature) }}</strong><span>Sáng tạo</span></div>
                   </div>
 
                   <div class="control-card">
-                    <label for="gwenTopP">Top P</label>
+                    <label for="gwenTopP"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>Top P</label>
                     <input id="gwenTopP" name="gwen_top_p" type="range" min="{{ gwen_settings_payload.ranges.topP.min }}" max="{{ gwen_settings_payload.ranges.topP.max }}" step="{{ gwen_settings_payload.ranges.topP.step }}" value="{{ gwen_settings_payload.defaults.topP }}" />
                     <div class="range-meta"><span>Tập trung</span><strong id="gwenTopPValue">{{ "%.2f"|format(gwen_settings_payload.defaults.topP) }}</strong><span>Đa dạng</span></div>
                   </div>
 
                   <div class="control-card">
-                    <label for="gwenTopK">Top K</label>
+                    <label for="gwenTopK"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4"/></svg>Top K</label>
                     <input id="gwenTopK" name="gwen_top_k" type="range" min="{{ gwen_settings_payload.ranges.topK.min }}" max="{{ gwen_settings_payload.ranges.topK.max }}" step="{{ gwen_settings_payload.ranges.topK.step }}" value="{{ gwen_settings_payload.defaults.topK }}" />
                     <div class="range-meta"><span>1</span><strong id="gwenTopKValue">{{ gwen_settings_payload.defaults.topK }}</strong><span>100</span></div>
                   </div>
 
                   <div class="control-card">
-                    <label for="gwenRepetitionPenalty">Repetition Penalty</label>
+                    <label for="gwenRepetitionPenalty"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>Repetition Penalty</label>
                     <input id="gwenRepetitionPenalty" name="gwen_repetition_penalty" type="range" min="{{ gwen_settings_payload.ranges.repetitionPenalty.min }}" max="{{ gwen_settings_payload.ranges.repetitionPenalty.max }}" step="{{ gwen_settings_payload.ranges.repetitionPenalty.step }}" value="{{ gwen_settings_payload.defaults.repetitionPenalty }}" />
                     <div class="range-meta"><span>Cho phép lặp</span><strong id="gwenRepetitionPenaltyValue">{{ "%.1f"|format(gwen_settings_payload.defaults.repetitionPenalty) }}</strong><span>Ngăn lặp</span></div>
                   </div>
 
                   <div class="control-card">
-                    <label for="gwenMaxNewTokens">Max New Tokens</label>
+                    <label for="gwenMaxNewTokens"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>Max New Tokens</label>
                     <input id="gwenMaxNewTokens" name="gwen_max_new_tokens" type="range" min="{{ gwen_settings_payload.ranges.maxNewTokens.min }}" max="{{ gwen_settings_payload.ranges.maxNewTokens.max }}" step="{{ gwen_settings_payload.ranges.maxNewTokens.step }}" value="{{ gwen_settings_payload.defaults.maxNewTokens }}" />
                     <div class="range-meta"><span>512</span><strong id="gwenMaxNewTokensValue">{{ gwen_settings_payload.defaults.maxNewTokens }}</strong><span>8192</span></div>
                   </div>
                 </div>
 
                 <div class="advanced-subsection">
-                  <div class="advanced-subsection-title">Code Predictor</div>
+                  <div class="advanced-subsection-title"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>Code Predictor</div>
                   <label class="toggle-row compact-toggle-row">
                     <input type="checkbox" name="gwen_subtalker_do_sample" id="gwenSubtalkerDoSample" checked />
                     <span class="toggle-track"><span class="toggle-thumb"></span></span>
@@ -241,19 +276,19 @@
 
                   <div class="advanced-settings-grid">
                     <div class="control-card">
-                      <label for="gwenSubtalkerTemperature">CP Temperature</label>
+                      <label for="gwenSubtalkerTemperature"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/></svg>CP Temperature</label>
                       <input id="gwenSubtalkerTemperature" name="gwen_subtalker_temperature" type="range" min="{{ gwen_settings_payload.ranges.codePredictorTemperature.min }}" max="{{ gwen_settings_payload.ranges.codePredictorTemperature.max }}" step="{{ gwen_settings_payload.ranges.codePredictorTemperature.step }}" value="{{ gwen_settings_payload.defaults.codePredictorTemperature }}" />
                       <div class="range-meta"><span>Ổn định</span><strong id="gwenSubtalkerTemperatureValue">{{ "%.1f"|format(gwen_settings_payload.defaults.codePredictorTemperature) }}</strong><span>Sáng tạo</span></div>
                     </div>
 
                     <div class="control-card">
-                      <label for="gwenSubtalkerTopK">CP Top K</label>
+                      <label for="gwenSubtalkerTopK"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4"/></svg>CP Top K</label>
                       <input id="gwenSubtalkerTopK" name="gwen_subtalker_top_k" type="range" min="{{ gwen_settings_payload.ranges.codePredictorTopK.min }}" max="{{ gwen_settings_payload.ranges.codePredictorTopK.max }}" step="{{ gwen_settings_payload.ranges.codePredictorTopK.step }}" value="{{ gwen_settings_payload.defaults.codePredictorTopK }}" />
                       <div class="range-meta"><span>1</span><strong id="gwenSubtalkerTopKValue">{{ gwen_settings_payload.defaults.codePredictorTopK }}</strong><span>100</span></div>
                     </div>
 
                     <div class="control-card">
-                      <label for="gwenSubtalkerTopP">CP Top P</label>
+                      <label for="gwenSubtalkerTopP"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>CP Top P</label>
                       <input id="gwenSubtalkerTopP" name="gwen_subtalker_top_p" type="range" min="{{ gwen_settings_payload.ranges.codePredictorTopP.min }}" max="{{ gwen_settings_payload.ranges.codePredictorTopP.max }}" step="{{ gwen_settings_payload.ranges.codePredictorTopP.step }}" value="{{ gwen_settings_payload.defaults.codePredictorTopP }}" />
                       <div class="range-meta"><span>Tập trung</span><strong id="gwenSubtalkerTopPValue">{{ "%.2f"|format(gwen_settings_payload.defaults.codePredictorTopP) }}</strong><span>Đa dạng</span></div>
                     </div>
@@ -266,7 +301,7 @@
                   </div>
                 </div>
 
-                <button class="btn btn-outline" type="button" id="resetGwenSettingsBtn">Reset về mặc định</button>
+                <button class="btn btn-outline" type="button" id="resetGwenSettingsBtn"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>Reset về mặc định</button>
               </div>
             </div>
           </div>
@@ -276,18 +311,21 @@
             <div class="studio-modal-dialog" role="dialog" aria-labelledby="pronunciationSettingsModalTitle" tabindex="-1">
               <div class="studio-modal-header">
                 <div>
-                  <h2 class="studio-modal-title" id="pronunciationSettingsModalTitle">Cài đặt phát âm</h2>
+                  <h2 class="studio-modal-title" id="pronunciationSettingsModalTitle">
+                    <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/></svg>
+                    Cài đặt phát âm
+                  </h2>
                   <p class="studio-modal-subtitle">Thêm các cặp thay chữ để model đọc đúng hơn trước khi synthesize.</p>
                 </div>
-                <button type="button" class="studio-modal-close" data-modal-close="true" aria-label="Đóng popup">×</button>
+                <button type="button" class="studio-modal-close" data-modal-close="true" aria-label="Đóng popup"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
               </div>
 
               <div class="studio-modal-panel" id="pronunciationSettingsBody">
                 <div id="pronunciationRules" class="pronunciation-rule-list"></div>
 
                 <div class="form-actions pronunciation-actions">
-                  <button class="btn btn-outline" type="button" id="addPronunciationRuleBtn">Thêm cặp đọc</button>
-                  <button class="btn btn-outline" type="button" id="clearPronunciationRulesBtn">Xóa hết</button>
+                  <button class="btn btn-outline" type="button" id="addPronunciationRuleBtn"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>Thêm cặp đọc</button>
+                  <button class="btn btn-outline" type="button" id="clearPronunciationRulesBtn"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>Xóa hết</button>
                 </div>
               </div>
             </div>
@@ -347,8 +385,7 @@
   const referenceTranscribeStatus = document.getElementById('referenceTranscribeStatus');
   const referenceTranscribeStatusLabel = document.getElementById('referenceTranscribeStatusLabel');
   const uploadFileLabel = document.getElementById('uploadFileLabel');
-  const presetModeBtn = document.getElementById('presetModeBtn');
-  const customModeBtn = document.getElementById('customModeBtn');
+  const textProgressBar = document.getElementById('textProgressBar');
   const presetVoiceSection = document.getElementById('presetVoiceSection');
   const presetVoiceSelect = document.getElementById('presetVoiceSelect');
   const presetVoicePlayer = document.getElementById('presetVoicePlayer');
@@ -655,6 +692,10 @@
     return options.find((item) => item.key === (MODEL_SELECTION.default_key || 'default')) || options[0] || null;
   }
 
+  const voicePreviewAvatar = document.getElementById('voicePreviewAvatar');
+  const voicePreviewName = document.getElementById('voicePreviewName');
+  const voicePreviewStyle = document.getElementById('voicePreviewStyle');
+
   function renderPresetVoiceDetail() {
     const activeVoice = getActivePresetVoice();
     if (!activeVoice) {
@@ -665,45 +706,30 @@
       presetVoicePlayer.src = activeVoice.audio_url;
       presetVoicePlayer.load();
     }
+
+    const idx = VOICE_PRESETS.indexOf(activeVoice);
+    const colorIdx = idx >= 0 ? idx % 10 : 0;
+    if (voicePreviewAvatar) {
+      const wasPlaying = voicePreviewAvatar.classList.contains('is-playing');
+      voicePreviewAvatar.className = 'voice-preview-avatar vl-color-' + colorIdx;
+      if (wasPlaying) voicePreviewAvatar.classList.add('is-playing');
+    }
+    if (voicePreviewName) voicePreviewName.textContent = activeVoice.name;
+    if (voicePreviewStyle) voicePreviewStyle.textContent = activeVoice.style || '';
   }
 
   function setGwenVoiceMode(mode) {
     if (ENGINE_ID !== 'gwen' || !VOICE_PRESETS.length) {
       return;
     }
-    gwenVoiceMode = mode === 'custom' ? 'custom' : 'preset';
+    gwenVoiceMode = 'preset';
 
-    if (presetModeBtn && customModeBtn) {
-      presetModeBtn.classList.toggle('active', gwenVoiceMode === 'preset');
-      customModeBtn.classList.toggle('active', gwenVoiceMode === 'custom');
+    if (presetVoiceSelect && !presetVoiceSelect.value && VOICE_PRESETS[0]) {
+      presetVoiceSelect.value = VOICE_PRESETS[0].id;
     }
-    if (presetVoiceSection) {
-      presetVoiceSection.classList.toggle('hidden', gwenVoiceMode !== 'preset');
-    }
-    if (customReferenceGroup) {
-      customReferenceGroup.classList.toggle('hidden', gwenVoiceMode === 'preset');
-    }
-    if (presetVoiceSelect) {
-      presetVoiceSelect.disabled = gwenVoiceMode !== 'preset';
-    }
-
-    if (gwenVoiceMode === 'preset') {
-      if (presetVoiceSelect && !presetVoiceSelect.value && VOICE_PRESETS[0]) {
-        presetVoiceSelect.value = VOICE_PRESETS[0].id;
-      }
-      if (activeTranscriptionController) {
-        activeTranscriptionController.abort();
-      }
-      setReferenceTranscriptionStatus('', 'neutral');
-      renderPresetVoiceDetail();
-    } else if (referenceText.dataset.fromPreset === 'true') {
-      referenceText.value = '';
-      referenceText.dataset.autoDetected = 'false';
-    }
-
+    renderPresetVoiceDetail();
     syncReferenceTextUi();
     syncThemedSelect(presetVoiceSelect);
-    window.requestAnimationFrame(syncSidebarLayout);
   }
 
   function selectedEngineRequiresReferenceText() {
@@ -711,33 +737,29 @@
   }
 
   function syncReferenceTextUi() {
-    const requiresTranscript = selectedEngineRequiresReferenceText();
-
-    if (ENGINE_ID === 'gwen') {
-      if (usesPresetVoice()) {
-        const activeVoice = getActivePresetVoice();
-        referenceText.value = activeVoice ? activeVoice.reference_text : '';
-        referenceText.dataset.fromPreset = 'true';
-        referenceText.readOnly = true;
-        referenceText.placeholder = 'Preset voice dùng transcript gốc của model.';
-      } else {
-        if (referenceText.dataset.fromPreset === 'true') {
-          referenceText.value = '';
-        }
-        referenceText.dataset.fromPreset = 'false';
-        referenceText.readOnly = false;
-        referenceText.placeholder = 'Gwen-TTS luôn cần transcript đúng với câu đang có trong audio tham chiếu.';
-      }
+    if (!referenceText) return;
+    if (ENGINE_ID === 'gwen' && usesPresetVoice()) {
+      const activeVoice = getActivePresetVoice();
+      referenceText.value = activeVoice ? activeVoice.reference_text : '';
     }
-
-    referenceText.required = requiresTranscript;
-    referenceText.setAttribute('aria-required', requiresTranscript ? 'true' : 'false');
-    updateReferenceTranscriptActionState();
   }
 
   function updateCount() {
     const limit = Number(textInput.getAttribute('maxlength') || '{{ text_input_limit }}');
-    textCount.textContent = `${textInput.value.trim().length} / ${limit}`;
+    const len = textInput.value.trim().length;
+    const pct = limit > 0 ? (len / limit) * 100 : 0;
+    textCount.textContent = `${len} / ${limit}`;
+
+    textCount.classList.remove('is-warning', 'is-danger');
+    if (pct > 95) textCount.classList.add('is-danger');
+    else if (pct > 80) textCount.classList.add('is-warning');
+
+    if (textProgressBar) {
+      textProgressBar.style.width = `${Math.min(pct, 100)}%`;
+      textProgressBar.classList.remove('is-warning', 'is-danger');
+      if (pct > 95) textProgressBar.classList.add('is-danger');
+      else if (pct > 80) textProgressBar.classList.add('is-warning');
+    }
   }
 
   function updateSpeed() {
@@ -791,7 +813,7 @@
         placeholder="Chữ hoặc cụm từ"
         value="${source.replace(/"/g, '&quot;')}"
       />
-      <span class="pronunciation-rule-arrow">-></span>
+      <span class="pronunciation-rule-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
       <input
         type="text"
         name="pronunciation_to"
@@ -799,7 +821,7 @@
         placeholder="Cách đọc mong muốn"
         value="${target.replace(/"/g, '&quot;')}"
       />
-      <button type="button" class="pronunciation-rule-remove" aria-label="Xóa cặp phát âm">X</button>
+      <button type="button" class="pronunciation-rule-remove" aria-label="Xóa cặp phát âm"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     `;
 
     const removeButton = row.querySelector('.pronunciation-rule-remove');
@@ -1184,14 +1206,7 @@
 
   function resetStudio() {
     document.getElementById('ttsForm').reset();
-    uploadFileLabel.textContent = 'Chưa có file nào được chọn';
     activeRequestController = null;
-    if (activeTranscriptionController) {
-      activeTranscriptionController.abort();
-      activeTranscriptionController = null;
-    }
-    referenceText.dataset.autoDetected = 'false';
-    setReferenceTranscriptionStatus('', 'neutral');
     updateCount();
     updateSpeed();
     updateGwenAdvancedSettingsUi();
@@ -1207,7 +1222,6 @@
       syncResultPlayerUi();
     }
     setStudioBusyState(false);
-    updateReferenceTranscriptActionState();
     if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
       if (presetVoiceSelect) {
         presetVoiceSelect.value = VOICE_PRESETS[0].id;
@@ -1335,14 +1349,6 @@
   }
 
   textInput.addEventListener('input', updateCount);
-  if (referenceText) {
-    referenceText.addEventListener('input', () => {
-      if (!referenceText.readOnly) {
-        referenceText.dataset.autoDetected = 'false';
-      }
-      updateReferenceTranscriptActionState();
-    });
-  }
   if (speedRange) {
     speedRange.addEventListener('input', () => {
       updateSpeed();
@@ -1374,10 +1380,6 @@
   if (clearPronunciationRulesBtn) {
     clearPronunciationRulesBtn.addEventListener('click', resetPronunciationRules);
   }
-  if (presetModeBtn && customModeBtn) {
-    presetModeBtn.addEventListener('click', () => setGwenVoiceMode('preset'));
-    customModeBtn.addEventListener('click', () => setGwenVoiceMode('custom'));
-  }
   if (presetVoiceSelect) {
     presetVoiceSelect.addEventListener('change', () => {
       renderPresetVoiceDetail();
@@ -1385,18 +1387,11 @@
       syncThemedSelect(presetVoiceSelect);
     });
   }
-  referenceAudio.addEventListener('change', function () {
-    const file = this.files && this.files[0];
-    uploadFileLabel.textContent = file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB` : 'Chưa có file nào được chọn';
-    referenceText.dataset.autoDetected = 'false';
-    if (!file) {
-      setReferenceTranscriptionStatus('', 'neutral');
-      updateReferenceTranscriptActionState();
-      return;
-    }
-    updateReferenceTranscriptActionState();
-    transcribeReferenceAudio({ auto: true });
-  });
+  if (presetVoicePlayer && voicePreviewAvatar) {
+    presetVoicePlayer.addEventListener('play', () => voicePreviewAvatar.classList.add('is-playing'));
+    presetVoicePlayer.addEventListener('pause', () => voicePreviewAvatar.classList.remove('is-playing'));
+    presetVoicePlayer.addEventListener('ended', () => voicePreviewAvatar.classList.remove('is-playing'));
+  }
 
   document.getElementById('ttsForm').addEventListener('submit', async function (event) {
     event.preventDefault();
@@ -1408,19 +1403,8 @@
     if (!validatePronunciationRules()) {
       return;
     }
-    if (!usesPresetVoice() && (!referenceAudio.files || !referenceAudio.files.length)) {
-      alert('Vui lòng chọn audio tham chiếu trước khi generate.');
-      referenceAudio.focus();
-      return;
-    }
-    if (!referenceText.value.trim()) {
-      alert('Gwen-TTS cần transcript tham chiếu. Hãy nhập đúng câu có trong audio mẫu.');
-      referenceText.focus();
-      return;
-    }
-    const selectedFile = referenceAudio.files && referenceAudio.files[0];
-    if (selectedFile && selectedFile.size > MAX_UPLOAD_BYTES) {
-      alert(`File audio vượt quá ${MAX_UPLOAD_MB} MB. Hãy cắt ngắn file rồi thử lại.`);
+    if (!usesPresetVoice()) {
+      alert('Vui lòng chọn giọng nói trước khi generate.');
       return;
     }
 
@@ -1477,7 +1461,6 @@
   updateCount();
   updateSpeed();
   updateGwenAdvancedSettingsUi();
-  referenceText.dataset.autoDetected = 'false';
   mountThemedSelect(presetVoiceSelect);
   resetPronunciationRules();
   bindStudioModal(advancedGwenSettingsToggle, advancedGwenSettingsModal);
@@ -1485,17 +1468,15 @@
   setSidebarTab('settings');
   syncResultPlayerUi();
   applyHistoryFilter();
-  syncSidebarLayout();
   setStudioBusyState(false);
-  syncReferenceTextUi();
-  updateReferenceTranscriptActionState();
   window.addEventListener('resize', () => {
     closeThemedSelectMenus();
-    syncSidebarLayout();
   });
   if (ENGINE_ID === 'gwen' && VOICE_PRESETS.length) {
     if (presetVoiceSelect) {
-      presetVoiceSelect.value = VOICE_PRESETS[0].id;
+      const urlVoice = new URLSearchParams(window.location.search).get('voice');
+      const match = urlVoice && VOICE_PRESETS.find(v => v.id === urlVoice);
+      presetVoiceSelect.value = match ? match.id : VOICE_PRESETS[0].id;
     }
     setGwenVoiceMode('preset');
   }
