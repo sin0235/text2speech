@@ -55,9 +55,9 @@ TEXT_EXAMPLES = [
 ]
 
 REFERENCE_TIPS = [
-    "Audio mẫu nên dài 3 đến 8 giây, một người nói, ít nhiễu.",
-    "Gwen-TTS và VieNeu Standard cần transcript đúng với câu trong audio mẫu.",
-    "Nếu lỗi hoặc thiếu GPU, đổi tạm sang VieNeu hoặc F5.",
+    "Audio mẫu nên dài 3 đến 10 giây, một người nói, ít nhiễu.",
+    "Gwen-TTS cần transcript đúng với câu trong audio mẫu.",
+    "Cần GPU CUDA để chạy Gwen-TTS local.",
 ]
 
 SETUP_STEPS = [
@@ -66,12 +66,8 @@ SETUP_STEPS = [
         "body": "Cài dependencies tối thiểu để chạy giao diện và API.",
     },
     {
-        "title": "Bật Gwen",
-        "body": "Cài `qwen-tts`; model sẽ load khi bạn generate.",
-    },
-    {
-        "title": "Thêm fallback",
-        "body": "Cài VieNeu hoặc F5 nếu cần engine phụ.",
+        "title": "Bật Gwen-TTS",
+        "body": "Cài `qwen-tts` và `sea-g2p`; model sẽ load khi bạn generate.",
     },
 ]
 
@@ -274,13 +270,7 @@ def _base_context(active: str) -> dict:
 
 
 def _pick_default_engine(engine_cards: list) -> str:
-    for card in engine_cards:
-        if card.id == studio.default_engine and card.ready:
-            return card.id
-    for card in engine_cards:
-        if card.ready:
-            return card.id
-    return engine_cards[0].id if engine_cards else "gwen"
+    return "gwen"
 
 
 def _engine_page_context(engine_id: str) -> dict:
@@ -364,7 +354,7 @@ def _build_transcription_payload(result) -> dict[str, Any]:
 def _build_synthesis_submission() -> SynthesisSubmission:
     upload = request.files.get("reference_audio")
     text = (request.form.get("text") or "").strip()
-    engine_id = (request.form.get("engine") or _pick_default_engine(studio.get_engine_cards())).strip().lower()
+    engine_id = "gwen"
     preset_voice_id = (request.form.get("preset_voice_id") or "").strip().lower()
     model_key = (request.form.get("model_key") or "default").strip() or "default"
     custom_model = (request.form.get("custom_model") or "").strip()
@@ -404,15 +394,9 @@ def _build_synthesis_submission() -> SynthesisSubmission:
             len(reference_text),
         )
 
-    if engine_id == "gwen":
-        gwen_generation_config = _parse_gwen_generation_form()
-        pronunciation_overrides = _parse_pronunciation_form()
-        speed = float(gwen_generation_config["speed"])
-    else:
-        try:
-            speed = min(max(float(speed_raw), 0.7), 1.3)
-        except ValueError as exc:
-            raise ValueError("Speed phải là số hợp lệ trong khoảng 0.7 - 1.3.") from exc
+    gwen_generation_config = _parse_gwen_generation_form()
+    pronunciation_overrides = _parse_pronunciation_form()
+    speed = float(gwen_generation_config["speed"])
 
     seed = None
     if seed_raw:
@@ -492,6 +476,8 @@ def home():
 
 @app.route("/studio/<engine_id>")
 def engine_page(engine_id: str):
+    if engine_id != "gwen":
+        abort(404)
     return render_template("studio_engine.html", **_engine_page_context(engine_id))
 
 

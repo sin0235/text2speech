@@ -51,18 +51,28 @@
         </div>
 
         <nav>
-          {% for card in engine_cards %}
-          <a href="{{ url_for('engine_page', engine_id=card.id) }}" class="{{ 'active' if active == card.id }}">
+          <a href="{{ url_for('engine_page', engine_id='gwen') }}" class="{{ 'active' if active == 'gwen' }}">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h10" />
             </svg>
-            {{ card.label | replace('-TTS', '') }}
+            Studio
           </a>
-          {% endfor %}
+          <a href="{{ url_for('voices_page') }}" class="{{ 'active' if active == 'voices' }}">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m-4 0h8" />
+            </svg>
+            Voices
+          </a>
+          <a href="{{ url_for('about') }}" class="{{ 'active' if active == 'about' }}">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+            </svg>
+            About
+          </a>
         </nav>
 
         <div class="header-status">
-          <span class="status-pill">{{ status_summary.ready_count }}/{{ status_summary.engine_count }} engine sẵn sàng</span>
+          <span class="status-pill">Gwen-TTS</span>
           <span class="status-pill status-pill-muted">{{ status_summary.device_label }}</span>
         </div>
       </header>

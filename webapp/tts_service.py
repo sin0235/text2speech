@@ -452,9 +452,52 @@ def _normalize_gwen_date_tokens(text: str) -> tuple[str, int]:
     return normalized, date_hits
 
 
+def _strip_sea_language_tags(text: str) -> str:
+    return re.sub(r"</?en>", "", text)
+
+
+def _get_sea_normalizer() -> Any | None:
+    try:
+        from sea_g2p import Normalizer
+        return Normalizer(lang="vi")
+    except Exception:
+        return None
+
+
+_sea_normalizer_instance: Any | None = None
+_sea_normalizer_loaded = False
+
+
 def _normalize_gwen_text(text: str) -> tuple[str, list[str]]:
+    global _sea_normalizer_instance, _sea_normalizer_loaded
     normalized = unicodedata.normalize("NFC", text or "")
     notes: list[str] = []
+
+    if not _sea_normalizer_loaded:
+        _sea_normalizer_instance = _get_sea_normalizer()
+        _sea_normalizer_loaded = True
+
+    if _sea_normalizer_instance is not None:
+        try:
+            sea_result = _sea_normalizer_instance.normalize(normalized)
+            if isinstance(sea_result, list):
+                sea_result = sea_result[0] if sea_result else normalized
+            normalized = _strip_sea_language_tags(str(sea_result))
+            notes.append("Đã chuẩn hóa văn bản bằng SEA-G2P Normalizer (số, ngày, viết tắt, email, tiền tệ).")
+        except Exception:
+            normalized = _normalize_gwen_text_fallback(normalized, notes)
+    else:
+        normalized = _normalize_gwen_text_fallback(normalized, notes)
+
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    normalized = re.sub(r"\s+([,.;!?])", r"\1", normalized)
+    normalized = re.sub(r"([,.;!?])([^\s])", r"\1 \2", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized, notes
+
+
+def _normalize_gwen_text_fallback(text: str, notes: list[str]) -> str:
+    normalized = text
 
     for source, target in _GWEN_TEXT_REPLACEMENTS:
         if source in normalized:
@@ -493,10 +536,6 @@ def _normalize_gwen_text(text: str) -> tuple[str, list[str]]:
         return " ".join(part for part in (spoken_number, suffix_text) if part).strip()
 
     normalized = _GWEN_NUMBER_TOKEN_PATTERN.sub(replace_number, normalized)
-    normalized = re.sub(r"\s+", " ", normalized).strip()
-    normalized = re.sub(r"\s+([,.;!?])", r"\1", normalized)
-    normalized = re.sub(r"([,.;!?])([^\s])", r"\1 \2", normalized)
-    normalized = re.sub(r"\s+", " ", normalized).strip()
 
     if date_hits:
         notes.append("Đã chuẩn hóa ngày tháng năm viết bằng số sang cách đọc tiếng Việt tự nhiên hơn.")
@@ -504,7 +543,7 @@ def _normalize_gwen_text(text: str) -> tuple[str, list[str]]:
         notes.append("Đã chuẩn hóa chữ viết tắt tiếng Việt/Latin sang cách đọc tự nhiên hơn.")
     if number_hits:
         notes.append("Đã chuẩn hóa số và đơn vị sang dạng đọc tiếng Việt trước khi synthesize.")
-    return normalized, notes
+    return normalized
 
 
 def _summarize_gwen_generation_changes(config: dict[str, Any] | None = None) -> str | None:
@@ -565,20 +604,6 @@ def _parse_named_choices(raw: str) -> list[tuple[str, str]]:
     return pairs
 
 
-def _parse_enabled_engines(raw: str) -> list[str]:
-    if not raw:
-        return ["gwen", "vieneu", "f5"]
-
-    engines: list[str] = []
-    seen: set[str] = set()
-    for item in re.split(r"[\s,;|]+", raw):
-        normalized = _normalize_engine_id(item, default="")
-        if normalized not in {"gwen", "vieneu", "f5"} or normalized in seen:
-            continue
-        engines.append(normalized)
-        seen.add(normalized)
-    return engines or ["gwen", "vieneu", "f5"]
-
 
 def _sanitize_cache_token(value: str, fallback: str = "default") -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", (value or "").strip()).strip("-._")
@@ -607,98 +632,6 @@ def _map_import_name_to_package(module_name: str) -> str:
     }.get((module_name or "").strip(), (module_name or "").strip())
 
 
-def _is_torch_audio_abi_mismatch_message(message: str) -> bool:
-    normalized = re.sub(r"\s+", " ", str(message or "")).strip().lower()
-    return any(
-        marker in normalized
-        for marker in (
-            "undefined symbol: torch_library_impl",
-            "undefined symbol: torch_list_push_back",
-            "_torchaudio.abi3.so",
-            "libtorchaudio.so",
-            "pytorch version",
-            "not compatible with",
-        )
-    )
-
-
-def _format_f5_import_error(exc: Exception) -> str:
-    if _is_torch_audio_abi_mismatch_message(str(exc)):
-        return (
-            "F5-TTS không import được vì stack `torch`/`torchaudio` trong runtime đang lệch ABI. "
-            "Nếu đang dùng notebook Colab của repo này, hãy rerun cell cài dependencies bản mới "
-            "để dọn sạch package cũ và cài lại đúng cặp `torch==2.11.0` với `torchaudio==2.11.0`."
-        )
-    if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None):
-        missing_module = exc.name.strip()
-        package_name = _map_import_name_to_package(missing_module)
-        return (
-            f"F5-TTS đã được cài nhưng thiếu dependency `{missing_module}`. "
-            f"Hãy chạy `python -m pip install -U f5-tts {package_name}` rồi khởi động lại ứng dụng. "
-            "Nếu đang dùng notebook Colab của repo này, hãy dùng cell cài dependencies bản mới "
-            "vì bản cũ cài `f5-tts` với `--no-deps`."
-        )
-    return f"Không thể import F5-TTS: {exc}"
-
-
-def _format_f5_runtime_error(exc: Exception) -> str:
-    normalized = re.sub(r"\s+", " ", str(exc or "")).strip().lower()
-    if _is_torch_audio_abi_mismatch_message(normalized) or any(
-        marker in normalized
-        for marker in (
-            "could not load libtorchaudio codec",
-            "ffmpeg is not properly installed",
-        )
-    ):
-        return (
-            "Không đọc được codec audio của torchaudio/FFmpeg trong runtime hiện tại. "
-            "Notebook của repo này đã chuyển mặc định sang Gwen-TTS; "
-            "hãy đổi engine sang `Gwen-TTS` hoặc `VieNeu-TTS`, hoặc rerun cell cài dependencies "
-            "để đồng bộ torch/torchaudio và ffmpeg trước khi dùng F5."
-        )
-    return str(exc)
-
-
-def _format_vieneu_import_error(exc: Exception) -> str:
-    if _is_torch_audio_abi_mismatch_message(str(exc)):
-        return (
-            "VieNeu-TTS không import được vì stack `torch`/`torchaudio` trong runtime đang lệch ABI. "
-            "Nếu đang dùng notebook Colab của repo này, hãy rerun cell cài dependencies bản mới "
-            "để dọn sạch package cũ và cài lại đúng cặp `torch==2.11.0` với `torchaudio==2.11.0`."
-        )
-    if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", None):
-        missing_module = exc.name.strip()
-        package_name = _map_import_name_to_package(missing_module)
-        return (
-            f"VieNeu-TTS đã được cài nhưng thiếu dependency `{missing_module}`. "
-            f"Hãy chạy `python -m pip install -U vieneu==2.4.3 {package_name}` rồi khởi động lại ứng dụng. "
-            "Nếu đang dùng notebook Colab của repo này, hãy rerun cell cài dependencies mới "
-            "vì `pip install vieneu[gpu]` không tự resolve đủ wheel GPU upstream."
-        )
-    return f"Không thể import VieNeu-TTS: {exc}"
-
-
-def _format_vieneu_runtime_error(exc: Exception) -> str:
-    normalized = re.sub(r"\s+", " ", str(exc or "")).strip()
-    lowered = normalized.lower()
-    if _is_torch_audio_abi_mismatch_message(lowered) or any(
-        marker in lowered
-        for marker in (
-            "requires pytorch",
-            "install torch via: pip install vieneu[gpu]",
-            "torch >= 2.11.0",
-            "skipping import of cpp extensions",
-            "remote mode",
-            "neucodec-onnx-decoder-int8",
-        )
-    ):
-        return (
-            "VieNeu Standard local không khởi tạo được với stack PyTorch hiện tại. "
-            "Rerun cell cài dependencies mới của notebook để cài lại `torch`/`torchaudio` theo CUDA 12.8 "
-            "và `vieneu[gpu]`, rồi khởi động lại webapp. "
-            "Nếu runtime không có GPU NVIDIA, hãy đổi `VIENEU_MODE=turbo`."
-        )
-    return normalized
 
 
 def _format_gwen_import_error(exc: Exception) -> str:
@@ -753,17 +686,6 @@ def _format_asr_runtime_error(exc: Exception) -> str:
         )
     return f"Không thể nhận diện transcript từ audio tham chiếu: {normalized}"
 
-
-def _normalize_engine_id(value: str, default: str = "gwen") -> str:
-    normalized = (value or "").strip().lower()
-    if normalized == "vira":
-        return "vieneu"
-    return normalized or default
-
-
-def _vieneu_mode_requires_reference_text(mode_name: str) -> bool:
-    normalized = (mode_name or "").strip().lower()
-    return normalized not in {"turbo", "turbo_gpu"}
 
 
 def _split_text_for_tts(text: str, max_chars: int = 220) -> list[str]:
@@ -913,93 +835,6 @@ def _split_text_by_words(text: str, *, max_words: int, max_chars: int | None = N
     return chunks
 
 
-def _split_text_by_pause(text: str, max_chars: int = 60) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text).strip()
-    if not normalized:
-        return []
-
-    segments = re.findall(r"[^,;:]+(?:[,;:]|$)", normalized)
-    if len(segments) <= 1:
-        return [normalized]
-
-    chunks: list[str] = []
-    current = ""
-    for segment in segments:
-        segment = segment.strip()
-        if not segment:
-            continue
-        candidate = segment if not current else f"{current} {segment}"
-        if len(candidate) <= max_chars:
-            current = candidate
-            continue
-        if current:
-            chunks.append(current)
-        current = segment
-
-    if current:
-        chunks.append(current)
-    return chunks or [normalized]
-
-
-def _split_failed_vira_chunk(text: str) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text).strip()
-    if not normalized:
-        return []
-
-    strategies = [
-        lambda value: _split_text_for_tts(value, max_chars=80),
-        lambda value: _split_text_for_tts(value, max_chars=60),
-        lambda value: _split_text_by_pause(value, max_chars=56),
-        lambda value: _split_text_by_words(value, max_words=8, max_chars=52),
-        lambda value: _split_text_by_words(value, max_words=6, max_chars=44),
-        lambda value: _split_text_by_words(value, max_words=4, max_chars=34),
-    ]
-    seen: set[tuple[str, ...]] = set()
-
-    for strategy in strategies:
-        parts = [part.strip() for part in strategy(normalized) if part.strip()]
-        signature = tuple(parts)
-        if len(parts) <= 1 or signature in seen:
-            continue
-        seen.add(signature)
-        return parts
-
-    return [normalized]
-
-
-def _fallback_cleanup_vira_text(
-    text: str,
-    *,
-    aggressive: bool = False,
-    ensure_terminal: bool = True,
-) -> str:
-    cleaned = re.sub(r"\s+", " ", text or "").strip()
-    if not cleaned:
-        return ""
-
-    replacements = [
-        ("...", ", "),
-        ("…", ", "),
-        ("—", "-"),
-        ("–", "-"),
-        ("\u00a0", " "),
-    ]
-    for old, new in replacements:
-        cleaned = cleaned.replace(old, new)
-
-    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
-    cleaned = re.sub(r"([,.;:!?])(?=[^\s\d])", r"\1 ", cleaned)
-
-    if aggressive:
-        cleaned = re.sub(r"[\"“”`*_#<>\[\]{}()]+", " ", cleaned)
-        cleaned = re.sub(r"\s*[|/]\s*", ", ", cleaned)
-        cleaned = re.sub(r"\s*[-:;]\s*", ", ", cleaned)
-        cleaned = re.sub(r",\s*,+", ", ", cleaned)
-
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
-    if ensure_terminal and cleaned and cleaned[-1] not in ".!?,":
-        cleaned += "."
-    return cleaned
 
 
 def _crossfade_join(waves: list[np.ndarray], sample_rate: int, duration_ms: int = 80) -> np.ndarray:
@@ -1270,7 +1105,7 @@ class TranscriptionResult:
 
 
 class TTSStudioService:
-    """Flask-facing service that orchestrates Gwen-TTS, VieNeu-TTS, and F5-TTS engines."""
+    """Flask-facing service for Gwen-TTS voice cloning."""
 
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
@@ -1285,10 +1120,7 @@ class TTSStudioService:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
-        self.enabled_engines = _parse_enabled_engines(os.getenv("TTS_ENABLED_ENGINES", ""))
-        self.default_engine = _normalize_engine_id(os.getenv("TTS_DEFAULT_ENGINE", "gwen"))
-        if self.default_engine not in self.enabled_engines:
-            self.default_engine = self.enabled_engines[0]
+        self.default_engine = "gwen"
         self.gwen_model_id = os.getenv("GWEN_MODEL_ID", "g-group-ai-lab/gwen-tts-0.6B").strip() or "g-group-ai-lab/gwen-tts-0.6B"
         self.gwen_model_choices = os.getenv("GWEN_MODEL_CHOICES", "").strip()
         self.gwen_dtype = (os.getenv("GWEN_DTYPE", "bfloat16") or "bfloat16").strip().lower() or "bfloat16"
@@ -1296,26 +1128,16 @@ class TTSStudioService:
         self.asr_model_id = os.getenv("ASR_MODEL_ID", "openai/whisper-small").strip() or "openai/whisper-small"
         self.asr_language = (os.getenv("ASR_LANGUAGE", "vi") or "vi").strip().lower() or "vi"
         self.asr_chunk_length_s = _clamp_int(os.getenv("ASR_CHUNK_LENGTH_S", "18"), minimum=8, maximum=30, default=18)
-        self.vieneu_mode = (os.getenv("VIENEU_MODE", "standard") or "standard").strip().lower() or "standard"
-        self.vieneu_mode_choices = os.getenv("VIENEU_MODE_CHOICES", "").strip()
-
-        self.f5_model_name = os.getenv("F5_MODEL_NAME", "F5TTS_v1_Base")
-        self.f5_ckpt_file = os.getenv("F5_CKPT_FILE", "").strip()
-        self.f5_vocab_file = os.getenv("F5_VOCAB_FILE", "").strip()
-        self.f5_vocoder_local_path = os.getenv("F5_VOCODER_LOCAL_PATH", "").strip() or None
-        self.f5_model_choices = os.getenv("F5_MODEL_CHOICES", "").strip()
         self._locks = {
             "gwen": Lock(),
-            "f5": Lock(),
             "asr": Lock(),
-            "vieneu": Lock(),
         }
         self._loaded_models: dict[str, Any] = {}
         self._gwen_import_probe: tuple[bool, str | None] | None = None
-        self._f5_import_probe: tuple[bool, str | None] | None = None
         self._asr_import_probe: tuple[bool, str | None] | None = None
-        self._vieneu_import_probe: tuple[bool, str | None] | None = None
         self._gwen_preset_voices_cache: list[PresetVoice] | None = None
+        self._sea_normalizer: Any | None = None
+        self._sea_normalizer_checked = False
 
     def _display_path(self, path: Path) -> str:
         try:
@@ -1326,10 +1148,6 @@ class TTSStudioService:
     @staticmethod
     def _make_gwen_model_key(model_id: str) -> str:
         return f"model::{model_id.strip()}"
-
-    @staticmethod
-    def _make_f5_model_key(model_name: str) -> str:
-        return f"name::{model_name.strip()}"
 
     def _load_gwen_preset_voices(self) -> list[PresetVoice]:
         if self._gwen_preset_voices_cache is not None:
@@ -1366,16 +1184,10 @@ class TTSStudioService:
         self._gwen_preset_voices_cache = voices
         return self._gwen_preset_voices_cache
 
-    def get_preset_voices(self, engine_id: str) -> list[PresetVoice]:
-        engine = _normalize_engine_id(engine_id)
-        if engine != "gwen":
-            return []
+    def get_preset_voices(self, engine_id: str = "gwen") -> list[PresetVoice]:
         return self._load_gwen_preset_voices()
 
     def get_preset_voice(self, engine_id: str, preset_voice_id: str) -> PresetVoice:
-        engine = _normalize_engine_id(engine_id)
-        if engine != "gwen":
-            raise TTSError("Preset voice hiện chỉ hỗ trợ cho Gwen-TTS.")
 
         normalized_id = (preset_voice_id or "").strip().lower()
         for voice in self._load_gwen_preset_voices():
@@ -1409,23 +1221,6 @@ class TTSStudioService:
         self._gwen_import_probe = (True, None)
         return self._gwen_import_probe
 
-    def _probe_f5_import(self) -> tuple[bool, str | None]:
-        if self._f5_import_probe is not None:
-            return self._f5_import_probe
-
-        if importlib.util.find_spec("f5_tts") is None:
-            self._f5_import_probe = (False, "Chưa cài gói `f5_tts`.")
-            return self._f5_import_probe
-
-        try:
-            importlib.import_module("f5_tts.api")
-        except Exception as exc:
-            self._f5_import_probe = (False, _format_f5_import_error(exc))
-            return self._f5_import_probe
-
-        self._f5_import_probe = (True, None)
-        return self._f5_import_probe
-
     def _probe_asr_import(self) -> tuple[bool, str | None]:
         if self._asr_import_probe is not None:
             return self._asr_import_probe
@@ -1445,67 +1240,6 @@ class TTSStudioService:
 
         self._asr_import_probe = (True, None)
         return self._asr_import_probe
-
-    def _probe_vieneu_import(self) -> tuple[bool, str | None]:
-        if self._vieneu_import_probe is not None:
-            return self._vieneu_import_probe
-
-        if importlib.util.find_spec("vieneu") is None:
-            self._vieneu_import_probe = (False, "Chưa cài gói `vieneu`.")
-            return self._vieneu_import_probe
-
-        try:
-            importlib.import_module("vieneu")
-        except Exception as exc:
-            self._vieneu_import_probe = (False, _format_vieneu_import_error(exc))
-            return self._vieneu_import_probe
-
-        self._vieneu_import_probe = (True, None)
-        return self._vieneu_import_probe
-
-    @staticmethod
-    def _make_vieneu_mode_key(mode_name: str) -> str:
-        return f"mode::{(mode_name or '').strip().lower()}"
-
-    @staticmethod
-    def _normalize_vieneu_mode(mode_name: str) -> str:
-        normalized = (mode_name or "").strip().lower()
-        if normalized not in {"turbo", "turbo_gpu", "fast", "standard"}:
-            raise TTSError("Mode VieNeu không hợp lệ.")
-        return normalized
-
-    def _f5_model_selection(self) -> dict[str, Any]:
-        options = [
-            {
-                "key": "default",
-                "label": f"Mặc định: {self.f5_model_name}",
-                "value": self.f5_model_name,
-                "mode": "default",
-            }
-        ]
-        seen_keys = {"default"}
-        for label, value in _parse_named_choices(self.f5_model_choices):
-            key = self._make_f5_model_key(value)
-            if key in seen_keys:
-                continue
-            options.append(
-                {
-                    "key": key,
-                    "label": label,
-                    "value": value,
-                    "mode": "name",
-                }
-            )
-            seen_keys.add(key)
-
-        return {
-            "default_key": "default",
-            "allow_custom": True,
-            "custom_placeholder": "Ví dụ: F5TTS_v1_Base hoặc model name upstream khác",
-            "help_primary": "F5 nhận model name theo upstream; chọn custom nếu muốn thử model khác mà không sửa biến môi trường.",
-            "help_secondary": "Checkpoint, vocab và vocoder vẫn lấy từ cấu hình hiện tại nếu bạn đã set biến môi trường.",
-            "options": options,
-        }
 
     def _gwen_model_selection(self) -> dict[str, Any]:
         options = [
@@ -1543,196 +1277,69 @@ class TTSStudioService:
             "options": options,
         }
 
-    def _vieneu_mode_selection(self) -> dict[str, Any]:
-        default_requires_reference_text = _vieneu_mode_requires_reference_text(self.vieneu_mode)
-        options = [
-            {
-                "key": "default",
-                "label": f"Mặc định: VieNeu {self.vieneu_mode}",
-                "value": self.vieneu_mode,
-                "mode": "default",
-                "requires_reference_text": default_requires_reference_text,
-            }
-        ]
-        seen_keys = {"default"}
-
-        for label, value in _parse_named_choices(self.vieneu_mode_choices):
-            mode_name = self._normalize_vieneu_mode(value)
-            key = self._make_vieneu_mode_key(mode_name)
-            if key in seen_keys:
-                continue
-            options.append(
-                {
-                    "key": key,
-                    "label": label,
-                    "value": mode_name,
-                    "mode": "named",
-                    "requires_reference_text": _vieneu_mode_requires_reference_text(mode_name),
-                }
-            )
-            seen_keys.add(key)
-
-        return {
-            "default_key": "default",
-            "allow_custom": True,
-            "default_value": self.vieneu_mode,
-            "custom_placeholder": "Ví dụ: standard, fast, turbo hoặc turbo_gpu",
-            "help_primary": (
-                "VieNeu đang mặc định `standard` để ưu tiên chất lượng và độ bám giọng. "
-                "Hãy nhập transcript đúng với audio tham chiếu."
-                if default_requires_reference_text
-                else "VieNeu đang mặc định `turbo` để ưu tiên ổn định và clone giọng nhanh hơn."
-            ),
-            "help_secondary": (
-                "Mode `standard` và `fast` bắt buộc transcript tham chiếu; "
-                "`turbo` và `turbo_gpu` nhẹ hơn nhưng chất lượng thường thấp hơn."
-            ),
-            "options": options,
-        }
-
     def get_model_selection(self, engine_id: str) -> dict[str, Any]:
-        engine = _normalize_engine_id(engine_id)
-        if engine == "gwen":
-            return self._gwen_model_selection()
-        if engine == "f5":
-            return self._f5_model_selection()
-        if engine == "vieneu":
-            return self._vieneu_mode_selection()
-        raise TTSError(f"Engine '{engine_id}' không tồn tại.")
+        return self._gwen_model_selection()
 
     def resolve_model_spec(
         self,
-        engine_id: str,
+        engine_id: str = "gwen",
         *,
         model_key: str = "default",
         custom_model: str = "",
     ) -> dict[str, Any]:
-        engine = _normalize_engine_id(engine_id)
         key = (model_key or "default").strip() or "default"
         custom = (custom_model or "").strip()
 
-        if engine == "gwen":
-            if key == "__custom__":
-                if not custom:
-                    raise TTSError("Hãy nhập model Gwen tùy chỉnh trước khi generate.")
-                model_id = custom
-            elif key == "default":
-                model_id = self.gwen_model_id
-                return {
-                    "key": "default",
-                    "label": self.gwen_model_id,
-                    "mode": "default",
-                    "model_id": self.gwen_model_id,
-                    "dtype": self.gwen_dtype,
-                    "attn_implementation": self.gwen_attn_implementation,
-                    "cache_key": f"gwen::default::{self.gwen_model_id}::{self.gwen_dtype}::{self.gwen_attn_implementation}",
-                }
-            elif key.startswith("model::"):
-                model_id = key.split("::", 1)[1].strip()
-            else:
-                raise TTSError("Lựa chọn model Gwen không hợp lệ.")
-            if not model_id:
-                raise TTSError("Model Gwen không hợp lệ.")
+        if key == "__custom__":
+            if not custom:
+                raise TTSError("Hãy nhập model Gwen tùy chỉnh trước khi generate.")
+            model_id = custom
+        elif key == "default":
             return {
-                "key": self._make_gwen_model_key(model_id),
-                "label": model_id,
-                "mode": "name",
-                "model_id": model_id,
+                "key": "default",
+                "label": self.gwen_model_id,
+                "mode": "default",
+                "model_id": self.gwen_model_id,
                 "dtype": self.gwen_dtype,
                 "attn_implementation": self.gwen_attn_implementation,
-                "cache_key": f"gwen::{model_id}::{self.gwen_dtype}::{self.gwen_attn_implementation}",
+                "cache_key": f"gwen::default::{self.gwen_model_id}::{self.gwen_dtype}::{self.gwen_attn_implementation}",
             }
-
-        if engine == "f5":
-            if key == "__custom__":
-                if not custom:
-                    raise TTSError("Hãy nhập model F5 tùy chỉnh trước khi generate.")
-                return {
-                    "key": self._make_f5_model_key(custom),
-                    "label": custom,
-                    "mode": "name",
-                    "model_name": custom,
-                    "cache_key": f"f5::{custom}::{self.f5_ckpt_file}::{self.f5_vocab_file}::{self.f5_vocoder_local_path or ''}",
-                }
-            if key == "default":
-                return {
-                    "key": "default",
-                    "label": self.f5_model_name,
-                    "mode": "default",
-                    "model_name": self.f5_model_name,
-                    "cache_key": f"f5::default::{self.f5_model_name}::{self.f5_ckpt_file}::{self.f5_vocab_file}::{self.f5_vocoder_local_path or ''}",
-                }
-            if key.startswith("name::"):
-                model_name = key.split("::", 1)[1].strip()
-                if not model_name:
-                    raise TTSError("Model F5 không hợp lệ.")
-                return {
-                    "key": key,
-                    "label": model_name,
-                    "mode": "name",
-                    "model_name": model_name,
-                    "cache_key": f"f5::{model_name}::{self.f5_ckpt_file}::{self.f5_vocab_file}::{self.f5_vocoder_local_path or ''}",
-                }
-            raise TTSError("Lựa chọn model F5 không hợp lệ.")
-
-        if engine == "vieneu":
-            if key == "__custom__":
-                if not custom:
-                    raise TTSError("Hãy nhập mode VieNeu tùy chỉnh trước khi generate.")
-                mode_name = self._normalize_vieneu_mode(custom)
-            elif key == "default":
-                return {
-                    "key": "default",
-                    "label": f"VieNeu {self.vieneu_mode}",
-                    "mode": "default",
-                    "mode_name": self.vieneu_mode,
-                    "cache_key": f"vieneu::default::{self.vieneu_mode}",
-                }
-            elif key.startswith("mode::"):
-                mode_name = self._normalize_vieneu_mode(key.split("::", 1)[1])
-            else:
-                raise TTSError("Lựa chọn mode VieNeu không hợp lệ.")
-            return {
-                "key": self._make_vieneu_mode_key(mode_name),
-                "label": f"VieNeu {mode_name}",
-                "mode": "name",
-                "mode_name": mode_name,
-                "cache_key": f"vieneu::{mode_name}",
-            }
-
-        raise TTSError(f"Engine '{engine_id}' không tồn tại.")
+        elif key.startswith("model::"):
+            model_id = key.split("::", 1)[1].strip()
+        else:
+            raise TTSError("Lựa chọn model Gwen không hợp lệ.")
+        if not model_id:
+            raise TTSError("Model Gwen không hợp lệ.")
+        return {
+            "key": self._make_gwen_model_key(model_id),
+            "label": model_id,
+            "mode": "name",
+            "model_id": model_id,
+            "dtype": self.gwen_dtype,
+            "attn_implementation": self.gwen_attn_implementation,
+            "cache_key": f"gwen::{model_id}::{self.gwen_dtype}::{self.gwen_attn_implementation}",
+        }
 
     def summary(self) -> dict[str, Any]:
-        cards = self.get_engine_cards()
-        ready_count = sum(1 for card in cards if card.ready)
+        card = self._gwen_card()
         device_label = "GPU" if self._torch_cuda_available() else "CPU"
-        default_card = next((card for card in cards if card.id == _normalize_engine_id(self.default_engine)), cards[0])
         return {
-            "engine_count": len(cards),
-            "ready_count": ready_count,
+            "engine_count": 1,
+            "ready_count": 1 if card.ready else 0,
             "device_label": device_label,
-            "default_engine": default_card.label,
+            "default_engine": card.label,
         }
 
     def get_engine_cards(self) -> list[EngineCard]:
-        cards_by_id = {
-            "gwen": self._gwen_card(),
-            "vieneu": self._vieneu_card(),
-            "f5": self._f5_card(),
-        }
-        return [cards_by_id[engine_id] for engine_id in self.enabled_engines]
+        return [self._gwen_card()]
 
-    def get_engine_card(self, engine_id: str) -> EngineCard:
-        engine = _normalize_engine_id(engine_id)
-        for card in self.get_engine_cards():
-            if card.id == engine:
-                return card
-        raise TTSError(f"Engine '{engine_id}' không tồn tại.")
+    def get_engine_card(self, engine_id: str = "gwen") -> EngineCard:
+        return self._gwen_card()
 
     def synthesize(
         self,
         *,
-        engine_id: str,
+        engine_id: str = "gwen",
         text: str,
         reference_audio: Path,
         reference_text: str = "",
@@ -1758,57 +1365,26 @@ class TTSStudioService:
         if not text:
             raise TTSError("Văn bản đầu vào rỗng sau khi chuẩn hóa cho TTS.")
 
-        engine = self.get_engine_card(engine_id)
+        engine = self.get_engine_card()
         if not engine.ready:
             raise TTSError(engine.warning or engine.summary)
-        model_spec = self.resolve_model_spec(
-            engine.id,
-            model_key=model_key,
-            custom_model=custom_model,
-        )
-        if engine.id == "gwen" and not reference_text:
+        model_spec = self.resolve_model_spec(model_key=model_key, custom_model=custom_model)
+        if not reference_text:
             raise TTSError(
                 "Gwen-TTS cần transcript tham chiếu. Hãy nhập đúng câu đang có trong audio tham chiếu trước khi generate."
             )
-        if engine.id == "vieneu" and _vieneu_mode_requires_reference_text(model_spec["mode_name"]) and not reference_text:
-            raise TTSError(
-                f"Mode VieNeu `{model_spec['mode_name']}` cần transcript tham chiếu. "
-                "Hãy nhập đúng câu đang có trong audio tham chiếu trước khi generate."
-            )
 
-        output_path = self.output_dir / f"{int(time.time())}-{uuid.uuid4().hex[:10]}-{engine.id}.wav"
-        if engine.id == "gwen":
-            result = self._synthesize_with_gwen(
-                text=text,
-                reference_audio=reference_audio,
-                reference_text=reference_text,
-                model_spec=model_spec,
-                output_path=output_path,
-                speed=speed,
-                gwen_generation_config=gwen_generation_config,
-                pronunciation_overrides=pronunciation_overrides,
-            )
-        elif engine.id == "f5":
-            result = self._synthesize_with_f5(
-                text=text,
-                reference_audio=reference_audio,
-                reference_text=reference_text,
-                speed=speed,
-                remove_silence=remove_silence,
-                seed=seed,
-                model_spec=model_spec,
-                output_path=output_path,
-            )
-        elif engine.id == "vieneu":
-            result = self._synthesize_with_vieneu(
-                text=text,
-                reference_audio=reference_audio,
-                reference_text=reference_text,
-                model_spec=model_spec,
-                output_path=output_path,
-            )
-        else:
-            raise TTSError(f"Engine '{engine_id}' không được hỗ trợ.")
+        output_path = self.output_dir / f"{int(time.time())}-{uuid.uuid4().hex[:10]}-gwen.wav"
+        result = self._synthesize_with_gwen(
+            text=text,
+            reference_audio=reference_audio,
+            reference_text=reference_text,
+            model_spec=model_spec,
+            output_path=output_path,
+            speed=speed,
+            gwen_generation_config=gwen_generation_config,
+            pronunciation_overrides=pronunciation_overrides,
+        )
 
         if input_normalization_notes:
             result.notes.insert(0, " ".join(input_normalization_notes))
@@ -1919,27 +1495,6 @@ class TTSStudioService:
             notes=notes,
         )
 
-    def _prepare_reference_audio_for_vieneu(self, reference_audio: Path) -> tuple[Path, float, dict[str, float | bool]]:
-        target_sr = 24000
-        audio_np, sr = _load_audio_mono_float(reference_audio, target_sr=target_sr)
-        audio_np, prep_stats = _trim_reference_silence(audio_np, sr)
-        duration_seconds = float(len(audio_np) / sr)
-        activity_after_trim = _estimate_activity_ratio(audio_np, sr)
-        if duration_seconds < 1.0:
-            raise TTSError("Audio tham chiếu quá ngắn cho VieNeu. Hãy dùng đoạn nói rõ dài tối thiểu khoảng 1 giây, tốt nhất 3-8 giây.")
-        if duration_seconds > 15.0:
-            raise TTSError("Audio tham chiếu quá dài cho VieNeu. Hãy cắt còn khoảng 3-8 giây để clone giọng ổn định hơn.")
-        if activity_after_trim < 0.12:
-            raise TTSError(
-                "Audio tham chiếu có quá nhiều khoảng lặng cho VieNeu. "
-                "Hãy cắt còn 3-8 giây giọng nói liên tục, rõ tiếng hơn."
-            )
-
-        prepared_path = self.reference_dir / f"{reference_audio.stem}-vieneu-24k.wav"
-        sf.write(prepared_path, audio_np, target_sr)
-        prep_stats["activity_ratio_after_trim"] = activity_after_trim
-        return prepared_path, duration_seconds, prep_stats
-
     def _prepare_reference_audio_for_gwen(self, reference_audio: Path) -> tuple[Path, float, dict[str, float | bool]]:
         raw_audio_np, raw_sr = _inspect_audio_mono_float(reference_audio)
         duration_seconds = float(len(raw_audio_np) / raw_sr)
@@ -1970,61 +1525,6 @@ class TTSStudioService:
         sf.write(prepared_path, audio_np, target_sr, subtype="PCM_16")
         prep_stats["converted"] = True
         return prepared_path, duration_seconds, prep_stats
-
-    def _prepare_reference_audio_for_f5(self, reference_audio: Path) -> tuple[Path, float, list[str]]:
-        target_sr = 24000
-        prepared_path = self.reference_dir / f"{reference_audio.stem}-f5-24k.wav"
-        suffix = reference_audio.suffix.lower()
-        notes: list[str] = []
-        compressed_suffixes = {".mp3", ".m4a", ".ogg", ".aac", ".wma", ".webm", ".mp4"}
-
-        if suffix in compressed_suffixes:
-            ffmpeg_bin = shutil.which("ffmpeg")
-            if not ffmpeg_bin:
-                raise TTSError(
-                    "F5-TTS cần `ffmpeg` để đọc audio tham chiếu dạng MP3/M4A/OGG. "
-                    "Hãy cài `ffmpeg` hoặc đổi file tham chiếu sang WAV/FLAC rồi thử lại."
-                )
-            try:
-                subprocess.run(
-                    [
-                        ffmpeg_bin,
-                        "-y",
-                        "-i",
-                        str(reference_audio),
-                        "-ac",
-                        "1",
-                        "-ar",
-                        str(target_sr),
-                        "-c:a",
-                        "pcm_s16le",
-                        str(prepared_path),
-                    ],
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-            except Exception as exc:
-                raise TTSError(
-                    "Không thể convert audio tham chiếu sang WAV cho F5-TTS bằng ffmpeg: "
-                    f"{_summarize_subprocess_error(exc)}"
-                ) from exc
-            audio_np, _ = _load_audio_mono_float(prepared_path, target_sr=target_sr)
-            sf.write(prepared_path, audio_np, target_sr, subtype="PCM_16")
-            notes.append("Đã tự convert audio tham chiếu sang WAV 24kHz trước khi gọi F5-TTS để tránh lỗi codec.")
-        else:
-            audio_np, _ = _load_audio_mono_float(reference_audio, target_sr=target_sr)
-            sf.write(prepared_path, audio_np, target_sr, subtype="PCM_16")
-            notes.append("Đã chuẩn hóa audio tham chiếu về WAV mono 24kHz trước khi gọi F5-TTS.")
-
-        duration_seconds = float(len(audio_np) / target_sr)
-        if duration_seconds < 1.0:
-            raise TTSError("Audio tham chiếu quá ngắn cho F5-TTS. Hãy dùng đoạn nói rõ dài tối thiểu khoảng 1 giây.")
-        if duration_seconds > 20.0:
-            notes.append("Audio tham chiếu cho F5-TTS hơi dài; tốt nhất nên giữ khoảng 3-12 giây để clone giọng ổn định hơn.")
-
-        return prepared_path, duration_seconds, notes
 
     def _gwen_card(self) -> EngineCard:
         module_ok, import_warning = self._probe_gwen_import()
@@ -2064,128 +1564,6 @@ class TTSStudioService:
                 "model_selection": self._gwen_model_selection(),
             },
         )
-
-    def _f5_card(self) -> EngineCard:
-        module_ok, import_warning = self._probe_f5_import()
-        if module_ok:
-            summary = "Sẵn sàng dùng zero-shot voice cloning với F5-TTS."
-            warning = None
-        elif import_warning == "Chưa cài gói `f5_tts`.":
-            summary = import_warning
-            warning = (
-                "Engine F5-TTS chưa khả dụng trong môi trường này. "
-                "Cài upstream F5-TTS rồi khởi động lại ứng dụng."
-            )
-        else:
-            summary = "F5-TTS cài chưa đủ dependency."
-            warning = import_warning
-        return EngineCard(
-            id="f5",
-            label="F5-TTS",
-            headline="Voice cloning linh hoạt, hợp cho voice-over và thử nghiệm đa phong cách.",
-            description="Adapter này gọi API `F5TTS().infer(...)` của F5-TTS và tự chia câu dài thành nhiều chunk nhỏ để ổn định hơn.",
-            recommended_for="Dùng khi cần clone giọng tự nhiên, giữ nhịp đọc mềm và muốn tinh chỉnh speed / seed.",
-            output_quality="Output WAV theo sample rate của model F5 đã nạp.",
-            reference_hint="Audio tham chiếu 3-12 giây, nói rõ, ít nhạc nền. Có thể nhập transcript để giữ nội dung tham chiếu chính xác hơn.",
-            supports_reference_text=True,
-            ready=module_ok,
-            summary=summary,
-            warning=warning,
-            metadata={
-                "model": self.f5_model_name,
-                "checkpoint": self.f5_ckpt_file or "auto-download theo cấu hình upstream",
-                "model_selection": self._f5_model_selection(),
-            },
-        )
-
-    def _vieneu_card(self) -> EngineCard:
-        mode_name = self.vieneu_mode
-        requires_reference_text = _vieneu_mode_requires_reference_text(mode_name)
-        module_ok, import_warning = self._probe_vieneu_import()
-        runtime_warning = self._vieneu_runtime_stack_warning(mode_name) if module_ok else None
-        if module_ok and not runtime_warning:
-            summary = f"Sẵn sàng dùng VieNeu-TTS {mode_name} cho tiếng Việt 24kHz."
-            warning = None
-        elif runtime_warning:
-            summary = f"VieNeu-TTS {mode_name} chưa sẵn sàng với runtime hiện tại."
-            warning = runtime_warning
-        elif import_warning == "Chưa cài gói `vieneu`.":
-            summary = import_warning
-            warning = (
-                "Engine VieNeu-TTS chưa khả dụng trong môi trường này. "
-                "Cài `vieneu[gpu]` rồi khởi động lại ứng dụng nếu muốn dùng mode standard."
-            )
-        else:
-            summary = "VieNeu-TTS cài chưa đủ dependency."
-            warning = import_warning
-
-        return EngineCard(
-            id="vieneu",
-            label="VieNeu-TTS",
-            headline=(
-                "Engine tiếng Việt chính của project, ưu tiên chất lượng clone giọng và độ bám lời."
-                if requires_reference_text
-                else "Engine tiếng Việt ổn định hơn ViRa, clone giọng trực tiếp từ audio tham chiếu."
-            ),
-            description=(
-                f"Adapter này dùng `vieneu.Vieneu(mode='{mode_name}')` để encode giọng tham chiếu "
-                "và sinh audio 24kHz, tránh flow LLM speech-token dễ lỗi của ViRa."
-            ),
-            recommended_for=(
-                "Dùng mặc định khi cần chất lượng cao hơn, clone giọng sát hơn và chấp nhận nhập transcript tham chiếu."
-                if requires_reference_text
-                else "Dùng khi cần tiếng Việt ổn định, ít lỗi và không muốn nhập transcript tham chiếu."
-            ),
-            output_quality=(
-                f"24kHz audio từ VieNeu {mode_name}, ưu tiên chất lượng và độ bám giọng."
-                if requires_reference_text
-                else f"24kHz audio từ VieNeu {mode_name}, ưu tiên ổn định và tốc độ."
-            ),
-            reference_hint=(
-                "Audio tham chiếu 3-8 giây, một người nói, ít nhạc nền. "
-                "Bắt buộc nhập transcript đúng với câu đang có trong audio mẫu."
-                if requires_reference_text
-                else "Audio tham chiếu 3-8 giây, một người nói, ít nhạc nền. Transcript tham chiếu không bắt buộc."
-            ),
-            supports_reference_text=requires_reference_text,
-            ready=bool(module_ok and not runtime_warning),
-            summary=summary,
-            warning=warning,
-            metadata={
-                "mode": mode_name,
-                "requires_reference_text": requires_reference_text,
-                "model_selection": self._vieneu_mode_selection(),
-            },
-        )
-
-    def _load_f5(self, model_spec: dict[str, Any]) -> Any:
-        with self._locks["f5"]:
-            cache_key = model_spec["cache_key"]
-            if cache_key in self._loaded_models:
-                return self._loaded_models[cache_key]
-
-            try:
-                from f5_tts.api import F5TTS
-            except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(_format_f5_import_error(exc)) from exc
-
-            kwargs: dict[str, Any] = {
-                "model": model_spec["model_name"],
-            }
-            if self.f5_ckpt_file:
-                kwargs["ckpt_file"] = self.f5_ckpt_file
-            if self.f5_vocab_file:
-                kwargs["vocab_file"] = self.f5_vocab_file
-            if self.f5_vocoder_local_path:
-                kwargs["vocoder_local_path"] = self.f5_vocoder_local_path
-
-            try:
-                instance = F5TTS(**kwargs)
-            except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(f"Khởi tạo F5-TTS thất bại: {exc}") from exc
-
-            self._loaded_models[cache_key] = instance
-            return instance
 
     def _load_gwen(self, model_spec: dict[str, Any]) -> Any:
         with self._locks["gwen"]:
@@ -2241,150 +1619,6 @@ class TTSStudioService:
 
             self._loaded_models[cache_key] = instance
             return instance
-
-    def _load_vieneu(self, model_spec: dict[str, Any]) -> Any:
-        with self._locks["vieneu"]:
-            cache_key = model_spec["cache_key"]
-            if cache_key in self._loaded_models:
-                return self._loaded_models[cache_key]
-
-            try:
-                from vieneu import Vieneu
-            except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(_format_vieneu_import_error(exc)) from exc
-
-            try:
-                instance = Vieneu(mode=model_spec["mode_name"])
-            except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(f"Khởi tạo VieNeu-TTS thất bại: {_format_vieneu_runtime_error(exc)}") from exc
-
-            self._loaded_models[cache_key] = instance
-            return instance
-
-    def _ensure_vira_model_path(self, model_spec: dict[str, Any]) -> Path:
-        if model_spec["mode"] == "path":
-            model_path = Path(model_spec["model_path"])
-            if _nonempty_dir(model_path):
-                return model_path
-            raise TTSError(
-                f"Không tìm thấy model ViRa tại '{model_path}'. "
-                "Hãy kiểm tra lại đường dẫn local."
-            )
-
-        if model_spec["mode"] == "repo":
-            model_path = Path(model_spec["download_path"])
-            repo_id = model_spec["repo_id"]
-            if _nonempty_dir(model_path):
-                return model_path
-            if not self.vira_auto_download:
-                raise TTSError(
-                    f"Model ViRa '{repo_id}' chưa có trong cache local. "
-                    "Bật `VIRA_AUTO_DOWNLOAD=1` để app tự tải repo này."
-                )
-            return self._download_vira_repo(repo_id=repo_id, local_dir=model_path)
-
-        if _nonempty_dir(self.vira_model_path):
-            return self.vira_model_path
-
-        if not self.vira_auto_download:
-            raise TTSError(
-                f"Thiếu model ViRa tại '{self.vira_model_path}'. "
-                "Bật `VIRA_AUTO_DOWNLOAD=1` hoặc tải model thủ công."
-            )
-
-        return self._download_vira_repo(repo_id=self.vira_model_id, local_dir=self.vira_model_path)
-
-    def _download_vira_repo(self, *, repo_id: str, local_dir: Path) -> Path:
-        try:
-            from huggingface_hub import snapshot_download
-        except Exception as exc:  # pragma: no cover - depends on external install
-            raise TTSError(f"Không thể auto-download model ViRa: {exc}") from exc
-
-        local_dir.parent.mkdir(parents=True, exist_ok=True)
-        snapshot_download(
-            repo_id=repo_id,
-            local_dir=str(local_dir),
-            local_dir_use_symlinks=False,
-        )
-        return local_dir
-
-    def _synthesize_with_f5(
-        self,
-        *,
-        text: str,
-        reference_audio: Path,
-        reference_text: str,
-        speed: float,
-        remove_silence: bool,
-        seed: int | None,
-        model_spec: dict[str, Any],
-        output_path: Path,
-    ) -> SynthesisResult:
-        f5 = self._load_f5(model_spec)
-        prepared_reference_audio, ref_duration, prep_notes = self._prepare_reference_audio_for_f5(reference_audio)
-        notes: list[str] = list(prep_notes)
-        chunks = _split_text_for_tts(text, max_chars=220)
-        chunk_waves: list[np.ndarray] = []
-        sample_rate = None
-        started = time.perf_counter()
-
-        for index, chunk in enumerate(chunks):
-            chunk_seed = None if seed is None else seed + index
-            try:
-                wav, sr, _ = f5.infer(
-                    ref_file=str(prepared_reference_audio),
-                    ref_text=reference_text,
-                    gen_text=chunk,
-                    speed=float(speed),
-                    remove_silence=False,
-                    seed=chunk_seed,
-                    show_info=lambda *_args, **_kwargs: None,
-                )
-            except Exception as exc:  # pragma: no cover - depends on external install
-                raise TTSError(
-                    f"F5-TTS sinh audio thất bại ở chunk {index + 1}: {_format_f5_runtime_error(exc)}"
-                ) from exc
-
-            wave = _to_numpy_audio(wav)
-            chunk_waves.append(wave)
-            sample_rate = int(sr)
-
-        combined = _crossfade_join(chunk_waves, sample_rate=sample_rate or 24000)
-        sf.write(output_path, combined, sample_rate or 24000)
-
-        if remove_silence:
-            try:
-                from f5_tts.infer.utils_infer import remove_silence_for_generated_wav
-
-                remove_silence_for_generated_wav(str(output_path))
-                notes.append("Đã loại bớt khoảng lặng bằng tiện ích upstream của F5-TTS.")
-            except Exception:
-                notes.append("Không thể remove silence tự động, nên giữ nguyên audio gốc.")
-
-        elapsed = time.perf_counter() - started
-        duration = len(combined) / float(sample_rate or 24000)
-        notes.append(f"Audio tham chiếu F5 sau chuẩn hóa dài khoảng {ref_duration:.2f}s.")
-        if len(chunks) > 1:
-            notes.append(f"Văn bản được tách thành {len(chunks)} chunk để giữ inference ổn định hơn.")
-        if reference_text:
-            notes.append("Đã dùng transcript tham chiếu để neo chất giọng của F5-TTS.")
-        if model_spec["key"] != "default":
-            notes.insert(0, f"Đã dùng model F5 tùy chọn: {model_spec['label']}.")
-
-        return SynthesisResult(
-            engine_id="f5",
-            engine_label="F5-TTS",
-            model_key=model_spec["key"],
-            model_label=model_spec["label"],
-            output_path=output_path,
-            sample_rate=sample_rate or 24000,
-            duration_seconds=duration,
-            inference_seconds=elapsed,
-            chunk_count=len(chunks),
-            reference_text_used=bool(reference_text),
-            seed=seed,
-            notes=notes,
-        )
 
     def _synthesize_with_gwen(
         self,
@@ -2580,497 +1814,6 @@ class TTSStudioService:
             notes=notes,
         )
 
-    def _synthesize_with_vieneu(
-        self,
-        *,
-        text: str,
-        reference_audio: Path,
-        reference_text: str,
-        model_spec: dict[str, Any],
-        output_path: Path,
-    ) -> SynthesisResult:
-        vieneu = self._load_vieneu(model_spec)
-        started = time.perf_counter()
-        prepared_reference_audio, ref_duration, ref_prep_stats = self._prepare_reference_audio_for_vieneu(reference_audio)
-
-        try:
-            voice = vieneu.encode_reference(str(prepared_reference_audio))
-        except Exception as exc:  # pragma: no cover - depends on external install
-            raise TTSError(f"VieNeu không encode được audio tham chiếu: {exc}") from exc
-
-        if _numel(voice) == 0:
-            raise TTSError("VieNeu encode ra voice embedding rỗng từ audio tham chiếu.")
-
-        requires_reference_text = _vieneu_mode_requires_reference_text(model_spec["mode_name"])
-        infer_kwargs: dict[str, Any] = {
-            "text": text,
-            "max_chars": 220,
-            "show_progress": False,
-        }
-        if not requires_reference_text:
-            infer_kwargs["voice"] = voice
-        else:
-            if not reference_text:
-                raise TTSError(
-                    "Mode VieNeu này cần transcript tham chiếu. "
-                    "Hãy nhập đúng câu đang có trong audio tham chiếu hoặc đổi về mode `turbo`."
-                )
-            infer_kwargs["ref_codes"] = voice
-            infer_kwargs["ref_text"] = reference_text
-
-        try:
-            audio = vieneu.infer(**infer_kwargs)
-        except Exception as exc:  # pragma: no cover - depends on external install
-            raise TTSError(f"VieNeu sinh audio thất bại: {exc}") from exc
-
-        audio_np = _to_numpy_audio(audio)
-        if audio_np.size == 0:
-            raise TTSError("VieNeu trả về audio rỗng. Hãy thử đổi audio tham chiếu hoặc rút ngắn đoạn văn.")
-
-        sample_rate = int(getattr(vieneu, "sample_rate", 24000) or 24000)
-        sf.write(output_path, audio_np, sample_rate)
-
-        elapsed = time.perf_counter() - started
-        estimated_chunks = max(1, len(_split_text_for_tts(text, max_chars=220)))
-        notes = [
-            "VieNeu clone giọng trực tiếp từ reference embedding, không dùng flow speech-token kiểu ViRa.",
-            f"Audio tham chiếu sau chuẩn hóa dài khoảng {ref_duration:.2f}s.",
-        ]
-        if ref_prep_stats.get("trimmed"):
-            notes.append(
-                f"Đã tự cắt khoảng lặng đầu/cuối khỏi audio tham chiếu (~{float(ref_prep_stats['trimmed_seconds']):.2f}s)."
-            )
-        if float(ref_prep_stats.get("activity_ratio_after_trim", 0.0)) < 0.28:
-            notes.append("Audio tham chiếu có mật độ giọng nói hơi thưa; VieNeu vẫn chạy được nhưng chất lượng clone có thể giảm.")
-        if reference_text and not requires_reference_text:
-            notes.append(f"Mode VieNeu `{model_spec['mode_name']}` không bắt buộc transcript tham chiếu; trường này chỉ để bạn lưu đối chiếu.")
-        if requires_reference_text:
-            notes.append(f"Đã dùng mode VieNeu `{model_spec['mode_name']}` nên transcript tham chiếu được truyền vào model.")
-        if model_spec["key"] != "default":
-            notes.insert(0, f"Đã dùng mode VieNeu tùy chọn: {model_spec['label']}.")
-
-        return SynthesisResult(
-            engine_id="vieneu",
-            engine_label="VieNeu-TTS",
-            model_key=model_spec["key"],
-            model_label=model_spec["label"],
-            output_path=output_path,
-            sample_rate=sample_rate,
-            duration_seconds=len(audio_np) / float(sample_rate),
-            inference_seconds=elapsed,
-            chunk_count=estimated_chunks,
-            reference_text_used=bool(reference_text and requires_reference_text),
-            seed=None,
-            notes=notes,
-        )
-
-    @staticmethod
-    def _count_speech_tokens(llm_response: str) -> int:
-        """Count valid speech_token_XXX patterns in the LLM output."""
-        return len(re.findall(r"speech_token_\d+", llm_response or ""))
-
-    @staticmethod
-    def _llm_output_preview(llm_response: str, limit: int = 160) -> str:
-        compact = re.sub(r"\s+", " ", llm_response or "").strip()
-        if not compact:
-            return "trống"
-        if len(compact) > limit:
-            return compact[:limit].rstrip() + "..."
-        return compact
-
-    @staticmethod
-    def _normalize_vira_retry_text(
-        chunk: str,
-        *,
-        aggressive: bool = False,
-        ensure_terminal: bool = True,
-    ) -> str:
-        cleaned = _fallback_cleanup_vira_text(chunk, aggressive=False, ensure_terminal=False)
-        if not cleaned:
-            return ""
-
-        try:
-            from mira.utils import normalize_vietnamese, punc_norm
-        except Exception:
-            normalized = cleaned
-        else:
-            try:
-                normalized = normalize_vietnamese(cleaned)
-                normalized = punc_norm(normalized)
-            except Exception:
-                normalized = cleaned
-
-        return _fallback_cleanup_vira_text(
-            normalized,
-            aggressive=aggressive,
-            ensure_terminal=ensure_terminal,
-        )
-
-    def _mutate_chunk_text(self, chunk: str, attempt: int) -> str:
-        """Slightly modify chunk text on retries to nudge the LLM.
-
-        Sometimes the LLM gets stuck on certain text patterns and produces
-        zero or too few speech tokens. Small cleanup steps that stay close to
-        ViRa's own preprocessing help more than adding meta-instructions.
-        """
-        chunk = re.sub(r"\s+", " ", chunk or "").strip()
-        if attempt <= 0:
-            return chunk
-        if attempt == 1:
-            return self._normalize_vira_retry_text(chunk, aggressive=False, ensure_terminal=True) or chunk
-        if attempt == 2:
-            return self._normalize_vira_retry_text(chunk, aggressive=True, ensure_terminal=True) or chunk
-        if attempt == 3:
-            return self._normalize_vira_retry_text(chunk, aggressive=True, ensure_terminal=False) or chunk
-        normalized = self._normalize_vira_retry_text(chunk, aggressive=True, ensure_terminal=True) or chunk
-        words = normalized.split()
-        mid = len(words) // 2
-        if mid > 0 and "," not in normalized:
-            words.insert(mid, ",")
-            return " ".join(words)
-        return normalized
-
-    def _vira_generate_with_recovery(
-        self,
-        model: Any,
-        chunk: str,
-        context_tokens: str,
-        *,
-        split_depth: int = 0,
-        max_split_depth: int = 2,
-    ) -> tuple[list[np.ndarray], list[str]]:
-        retry_budget = max(3, 5 - split_depth)
-
-        try:
-            audio, notes = self._vira_generate_safe(
-                model,
-                chunk,
-                context_tokens,
-                max_retries=retry_budget,
-                min_speech_tokens=10,
-            )
-        except TTSError as exc:
-            root_error = exc
-        else:
-            audio_np = _to_numpy_audio(audio)
-            if audio_np.size == 0:
-                root_error = TTSError("ViRa trả về audio rỗng.")
-            else:
-                return [audio_np], notes
-
-        if split_depth >= max_split_depth:
-            raise root_error
-
-        sub_chunks = _split_failed_vira_chunk(chunk)
-        if len(sub_chunks) <= 1:
-            raise root_error
-
-        notes = [
-            f"Tách fallback depth {split_depth + 1}: chunk được chia thành {len(sub_chunks)} đoạn ngắn hơn."
-        ]
-        recovered_waves: list[np.ndarray] = []
-        recovered_any = False
-
-        for sub_index, sub_chunk in enumerate(sub_chunks):
-            try:
-                sub_waves, sub_notes = self._vira_generate_with_recovery(
-                    model,
-                    sub_chunk,
-                    context_tokens,
-                    split_depth=split_depth + 1,
-                    max_split_depth=max_split_depth,
-                )
-            except TTSError:
-                notes.append(
-                    f"Sub-chunk {sub_index + 1}/{len(sub_chunks)} thất bại, bị bỏ qua."
-                )
-                continue
-
-            recovered_any = True
-            recovered_waves.extend(sub_waves)
-            notes.extend(
-                f"Sub-chunk {sub_index + 1}/{len(sub_chunks)}: {note}"
-                for note in sub_notes
-            )
-
-        if recovered_any:
-            return recovered_waves, notes
-        raise root_error
-
-    def _vira_generate_safe(
-        self,
-        model: Any,
-        chunk: str,
-        context_tokens: str,
-        *,
-        max_retries: int = 5,
-        min_speech_tokens: int = 10,
-    ) -> tuple[Any, list[str]]:
-        """Generate audio for a single chunk with validation and retry logic.
-
-        The upstream AudioDecoder.detokenize() extracts speech tokens via regex.
-        If the LLM produces fewer valid speech_token_XXX patterns than the ONNX
-        Conv kernel's minimum receptive field, the resulting tensor crashes the
-        ONNX Conv node at '/out_project/Conv' with "Invalid input shape: {0}".
-
-        Defence layers:
-          1. Token count validation (min_speech_tokens=10)
-          2. Separate try/except around codec.decode() so ONNX errors trigger retry
-          3. Temperature + text mutation schedule across retries
-          4. Escalating max_new_tokens budget
-        """
-        codec = model.codec
-        pipe = model.pipe
-        base_gen_config = model.gen_config
-        notes: list[str] = []
-
-        # Retry schedule: temperature, top_k, repetition_penalty, max_new_tokens
-        # Gradually increase randomness and output budget.
-        retry_schedule = [
-            {},                                                                          # 0: original
-            {"temperature": 0.9,  "top_k": 80},                                         # 1: warmer
-            {"temperature": 1.0,  "top_k": 100, "repetition_penalty": 1.05},             # 2: more diverse
-            {"temperature": 0.85, "top_k": 60,  "max_new_tokens": 2048},                 # 3: longer budget, lower temp
-            {"temperature": 1.1,  "top_k": 120, "repetition_penalty": 1.0, "max_new_tokens": 2048},  # 4: max explore
-        ]
-
-        last_error: Exception | None = None
-        last_token_count = 0
-        best_token_count = 0
-        last_llm_preview = "trống"
-
-        for attempt in range(max_retries):
-            # Mutate text on retries to break degenerate LLM patterns
-            attempt_chunk = self._mutate_chunk_text(chunk, attempt)
-
-            # Build generation config for this attempt
-            overrides = retry_schedule[attempt] if attempt < len(retry_schedule) else retry_schedule[-1]
-            if overrides:
-                try:
-                    from lmdeploy import GenerationConfig
-                    gen_config = GenerationConfig(
-                        top_p=overrides.get("top_p", base_gen_config.top_p),
-                        top_k=overrides.get("top_k", base_gen_config.top_k),
-                        temperature=overrides.get("temperature", base_gen_config.temperature),
-                        max_new_tokens=overrides.get("max_new_tokens", base_gen_config.max_new_tokens),
-                        repetition_penalty=overrides.get("repetition_penalty", base_gen_config.repetition_penalty),
-                        do_sample=True,
-                        min_p=overrides.get("min_p", base_gen_config.min_p),
-                    )
-                except Exception:
-                    gen_config = base_gen_config
-            else:
-                gen_config = base_gen_config
-
-            # --- Step 1: LLM inference ---
-            try:
-                formatted_prompt = codec.format_prompt(attempt_chunk, context_tokens, None)
-                response = pipe([formatted_prompt], gen_config=gen_config, do_preprocess=False)
-                llm_output = response[0].text if response else ""
-            except Exception as exc:
-                last_error = exc
-                notes.append(
-                    f"Chunk retry {attempt + 1}/{max_retries} LLM lỗi: {type(exc).__name__}: {exc}"
-                )
-                continue
-
-            # --- Step 2: Validate token count ---
-            last_llm_preview = self._llm_output_preview(llm_output)
-            token_count = self._count_speech_tokens(llm_output)
-            last_token_count = token_count
-            best_token_count = max(best_token_count, token_count)
-
-            if token_count < min_speech_tokens:
-                notes.append(
-                    f"Chunk retry {attempt + 1}/{max_retries}: LLM trả về {token_count} speech token "
-                    f"(cần ≥{min_speech_tokens})."
-                )
-                continue  # retry with next config
-
-            # --- Step 3: Decode tokens to audio (separate try/except for ONNX) ---
-            try:
-                audio = codec.decode(llm_output, context_tokens)
-            except Exception as exc:
-                last_error = exc
-                notes.append(
-                    f"Chunk retry {attempt + 1}/{max_retries} decode lỗi ({token_count} tokens): "
-                    f"{type(exc).__name__}: {exc}"
-                )
-                # Raise min threshold for next attempt since tokens were insufficient
-                min_speech_tokens = max(min_speech_tokens, token_count + 5)
-                continue
-
-            # --- Step 4: Apply fade in/out ---
-            try:
-                from mira.model import apply_fade_in_out
-                sample_rate = 48000
-                fade_in_samples = int(10 * sample_rate / 1000)
-                fade_out_samples = int(50 * sample_rate / 1000)
-                audio = apply_fade_in_out(audio, fade_in_samples, fade_out_samples)
-            except Exception:
-                pass  # fade is cosmetic, don't fail on it
-
-            if attempt > 0:
-                notes.append(f"Chunk thành công sau {attempt + 1} lần thử.")
-            return audio, notes
-
-        # All retries exhausted
-        last_error_text = (
-            f"{type(last_error).__name__}: {last_error}"
-            if last_error is not None
-            else "không có exception từ model, nhưng LLM không sinh speech token hợp lệ"
-        )
-        llm_preview_text = (
-            "LLM output cuối trống."
-            if last_llm_preview == "trống"
-            else f"LLM output cuối: {last_llm_preview}."
-        )
-        raise TTSError(
-            f"ViRa sinh audio thất bại sau {max_retries} lần thử. "
-            f"LLM trả tối đa {best_token_count} speech token; lần cuối là {last_token_count} (cần ≥{min_speech_tokens}). "
-            f"Lỗi cuối: {last_error_text}. {llm_preview_text} "
-            "Nguyên nhân thường là audio tham chiếu quá ngắn, có khoảng lặng lớn, "
-            "hoặc chunk văn bản khiến model không sinh được token hợp lệ. "
-            "Hãy thử: (1) đổi audio tham chiếu dài 3-10s, nói rõ; "
-            "(2) rút ngắn câu văn; (3) tách thành nhiều câu ngắn hơn."
-        )
-
-    def _synthesize_with_vira(
-        self,
-        *,
-        text: str,
-        reference_audio: Path,
-        reference_text: str,
-        model_spec: dict[str, Any],
-        output_path: Path,
-    ) -> SynthesisResult:
-        model = self._load_vira(model_spec)
-        try:
-            from mira.utils import split_text as vira_split_text
-        except Exception:
-            vira_split_text = None
-
-        context_started = time.perf_counter()
-        prepared_reference_audio, ref_duration, ref_prep_stats = self._prepare_reference_audio_for_vira(reference_audio)
-        try:
-            context_tokens = model.encode_audio(str(prepared_reference_audio))
-        except Exception as exc:  # pragma: no cover - depends on external install
-            raise TTSError(f"ViRa không encode được audio tham chiếu: {exc}") from exc
-
-        context_numel = _numel(context_tokens)
-        if context_numel is not None and context_numel <= 0:
-            raise TTSError(
-                "ViRa encode ra context token rỗng từ audio tham chiếu. Hãy đổi sang WAV mono, 48kHz hoặc dùng đoạn nói 3-10 giây rõ hơn."
-            )
-
-        ctx_token_count: int | None = context_numel
-        # Also validate context_tokens is a non-empty string with actual token patterns
-        if isinstance(context_tokens, str):
-            ctx_token_count = len(re.findall(r"context_token_\d+", context_tokens))
-            if ctx_token_count == 0:
-                raise TTSError(
-                    "ViRa encode ra context token string rỗng (0 context_token pattern). "
-                    "Audio tham chiếu có thể quá ngắn hoặc gần im lặng. "
-                    "Hãy dùng WAV mono, 3-10 giây nói rõ ràng."
-                )
-
-        base_chunks = vira_split_text(text) if vira_split_text else [text]
-        if isinstance(base_chunks, str):
-            base_chunks = [base_chunks]
-        chunks: list[str] = []
-        for base_chunk in base_chunks:
-            chunks.extend(_split_text_for_tts(base_chunk, max_chars=140))
-        chunks = [chunk for chunk in chunks if chunk.strip()]
-        if not chunks:
-            raise TTSError("Không có câu hợp lệ để ViRa sinh audio.")
-
-        chunk_waves: list[np.ndarray] = []
-        all_notes: list[str] = []
-        skipped_chunks: list[int] = []
-
-        for index, chunk in enumerate(chunks):
-            try:
-                recovered_waves, chunk_notes = self._vira_generate_with_recovery(
-                    model, chunk, context_tokens,
-                )
-                all_notes.extend(
-                    f"Chunk {index + 1}/{len(chunks)}: {note}"
-                    for note in chunk_notes
-                )
-            except TTSError as exc:
-                if len(chunks) == 1:
-                    activity = float(ref_prep_stats.get("activity_ratio_after_trim", ref_prep_stats.get("activity_ratio", 0.0)))
-                    ctx_hint = str(ctx_token_count) if ctx_token_count is not None else "không rõ"
-                    raise TTSError(
-                        f"{exc} Audio tham chiếu sau chuẩn hóa dài {ref_duration:.2f}s, "
-                        f"mật độ giọng khoảng {activity:.2f}, context token {ctx_hint}."
-                    ) from exc
-                skipped_chunks.append(index + 1)
-                all_notes.append(
-                    f"Chunk {index + 1}/{len(chunks)} bị bỏ qua do LLM không sinh được speech token hợp lệ."
-                )
-                continue
-
-            if not recovered_waves:
-                if len(chunks) == 1:
-                    raise TTSError(
-                        f"ViRa trả về audio rỗng ở chunk {index + 1}. "
-                        "Hãy thử rút ngắn câu, đổi audio tham chiếu sang WAV mono rõ tiếng, "
-                        "hoặc tách đoạn văn thành các câu ngắn hơn."
-                    )
-                skipped_chunks.append(index + 1)
-                all_notes.append(f"Chunk {index + 1}/{len(chunks)} trả về audio rỗng, bị bỏ qua.")
-                continue
-
-            chunk_waves.extend(recovered_waves)
-
-        if not chunk_waves:
-            raise TTSError(
-                "ViRa không sinh được audio cho bất kỳ chunk nào. "
-                "Hãy thử: (1) đổi audio tham chiếu dài 3-10s, nói rõ; "
-                "(2) rút ngắn câu văn; (3) dùng audio WAV mono 48kHz."
-            )
-
-        audio_np = _crossfade_join(chunk_waves, sample_rate=48000, duration_ms=65)
-        sample_rate = 48000
-        sf.write(output_path, audio_np, sample_rate)
-
-        elapsed = time.perf_counter() - context_started
-        notes = [
-            "ViRa dùng reference audio đã được chuẩn hóa về WAV mono 48kHz và biên độ ổn định trước khi encode context token.",
-            f"Audio tham chiếu sau chuẩn hóa dài khoảng {ref_duration:.2f}s.",
-        ]
-        if ref_prep_stats.get("trimmed"):
-            notes.append(
-                f"Đã tự cắt khoảng lặng đầu/cuối khỏi audio tham chiếu (~{float(ref_prep_stats['trimmed_seconds']):.2f}s)."
-            )
-        if float(ref_prep_stats.get("activity_ratio_after_trim", 0.0)) < 0.35:
-            notes.append("Audio tham chiếu có mật độ giọng nói khá thưa; ViRa có thể kém ổn định hơn bình thường.")
-        if len(chunks) > 1:
-            notes.append(f"ViRa đã sinh tuần tự {len(chunks)} chunk rồi crossfade để giảm lỗi codec và rớt shape.")
-        if skipped_chunks:
-            notes.append(f"⚠️ Đã bỏ qua {len(skipped_chunks)} chunk lỗi (chunk {', '.join(map(str, skipped_chunks))}).")
-        if reference_text:
-            notes.append("ViRa hiện không dùng transcript tham chiếu; trường này chỉ để người dùng đối chiếu.")
-        if model_spec["key"] != "default":
-            notes.insert(0, f"Đã dùng model ViRa tùy chọn: {model_spec['label']}.")
-        notes.extend(all_notes)
-
-        return SynthesisResult(
-            engine_id="vira",
-            engine_label="ViRa",
-            model_key=model_spec["key"],
-            model_label=model_spec["label"],
-            output_path=output_path,
-            sample_rate=sample_rate,
-            duration_seconds=len(audio_np) / float(sample_rate),
-            inference_seconds=elapsed,
-            chunk_count=len(chunks),
-            reference_text_used=False,
-            seed=None,
-            notes=notes,
-        )
-
     @staticmethod
     def _torch_cuda_available() -> bool:
         if importlib.util.find_spec("torch") is None:
@@ -3099,30 +1842,7 @@ class TTSStudioService:
             return "Gwen-TTS cần PyTorch và GPU CUDA để chạy local."
 
         if not self._torch_cuda_available():
-            return "Gwen-TTS trong project này cần GPU CUDA để chạy local. Nếu runtime chỉ có CPU, hãy dùng VieNeu hoặc F5."
+            return "Gwen-TTS cần GPU CUDA để chạy local."
 
         return None
 
-    def _vieneu_runtime_stack_warning(self, mode_name: str) -> str | None:
-        if not _vieneu_mode_requires_reference_text(mode_name):
-            return None
-
-        version_label = self._torch_version_label()
-        if not version_label:
-            return (
-                f"VieNeu {mode_name} cần stack PyTorch GPU của upstream. "
-                "Notebook hiện tại phải cài lại `vieneu[gpu]` và torch/torchaudio mới hơn trước khi generate."
-            )
-
-        match = re.match(r"^\s*(\d+)\.(\d+)", version_label)
-        if match:
-            major = int(match.group(1))
-            minor = int(match.group(2))
-            if (major, minor) < (2, 11):
-                return (
-                    f"VieNeu {mode_name} cần torch >= 2.11 theo stack hiện tại của upstream, "
-                    f"nhưng runtime đang có torch {version_label}. "
-                    "Rerun notebook mới để cài lại torch/torchaudio theo CUDA 12.8."
-                )
-
-        return None

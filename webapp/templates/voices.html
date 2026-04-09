@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="page-header">
-  <h1>Engines</h1>
-  <p class="subtitle">Xem nhanh trạng thái và điểm khác nhau giữa các engine.</p>
+  <div class="page-header">
+  <h1>Gwen-TTS</h1>
+  <p class="subtitle">Engine chính cho voice cloning tiếng Việt.</p>
 </div>
 
+{% set card = engine_cards[0] %}
 <div class="comparison-grid">
-  {% for card in engine_cards %}
   <div class="card comparison-card">
     <div class="comparison-head">
       <div>
@@ -28,9 +28,7 @@
       </div>
       <div class="info-item">
         <div class="info-label">Transcript</div>
-        <div class="info-val">
-          {% if card.supports_reference_text %}Có{% else %}Không{% endif %}
-        </div>
+        <div class="info-val">Bắt buộc</div>
       </div>
     </div>
 
@@ -57,7 +55,6 @@
     </div>
     {% endif %}
   </div>
-  {% endfor %}
 </div>
 
 <div class="card">
@@ -87,15 +84,8 @@
     <div class="workflow-step">
       <span class="workflow-index">1</span>
       <div>
-        <strong>Chọn engine</strong>
-        <p>Ưu tiên Gwen. Nếu thiếu GPU hoặc lỗi dependency thì đổi sang VieNeu hoặc F5.</p>
-      </div>
-    </div>
-    <div class="workflow-step">
-      <span class="workflow-index">2</span>
-      <div>
         <strong>Chuẩn bị câu mẫu</strong>
-        <p>Giữ câu mẫu rõ chữ, ít nhiễu, có transcript chính xác nếu dùng Gwen hoặc VieNeu Standard.</p>
+        <p>Giữ câu mẫu rõ chữ, ít nhiễu, có transcript chính xác.</p>
       </div>
     </div>
     <div class="workflow-step">

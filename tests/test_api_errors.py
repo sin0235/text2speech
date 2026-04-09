@@ -18,17 +18,10 @@ class ApiErrorHandlingTest(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers["Location"].endswith("/studio/gwen"))
 
-    def test_engine_pages_render(self) -> None:
-        for engine_id, label in (
-            ("gwen", "Gwen-TTS"),
-            ("vieneu", "VieNeu-TTS"),
-            ("f5", "F5-TTS"),
-        ):
-            with self.subTest(engine_id=engine_id):
-                response = self.client.get(f"/studio/{engine_id}")
-
-                self.assertEqual(response.status_code, 200)
-                self.assertIn(label, response.get_data(as_text=True))
+    def test_gwen_engine_page_renders(self) -> None:
+        response = self.client.get("/studio/gwen")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Gwen-TTS", response.get_data(as_text=True))
 
     def test_gwen_page_lists_official_preset_voices(self) -> None:
         response = self.client.get("/studio/gwen")
@@ -44,9 +37,6 @@ class ApiErrorHandlingTest(unittest.TestCase):
         self.assertIn('id="advancedGwenSettingsToggle"', html)
         self.assertIn('id="pronunciationSettings"', html)
         self.assertIn('id="pronunciationSettingsToggle"', html)
-        self.assertIn('id="transcribeReferenceBtn"', html)
-        self.assertIn('id="autoTranscribeReference"', html)
-        self.assertIn('id="useTranscriptForTextBtn"', html)
         self.assertIn('maxlength="5000"', html)
         self.assertIn("0 / 5000", html)
 
@@ -124,8 +114,8 @@ class ApiErrorHandlingTest(unittest.TestCase):
         reference_path = studio.reference_dir / "normalization-test.wav"
         reference_path.write_bytes(b"RIFF")
         engine_card = EngineCard(
-            id="f5",
-            label="F5-TTS",
+            id="gwen",
+            label="Gwen-TTS",
             headline="demo",
             description="demo",
             recommended_for="demo",
@@ -136,8 +126,8 @@ class ApiErrorHandlingTest(unittest.TestCase):
             summary="ready",
         )
         result = SynthesisResult(
-            engine_id="f5",
-            engine_label="F5-TTS",
+            engine_id="gwen",
+            engine_label="Gwen-TTS",
             model_key="default",
             model_label="Default",
             output_path=studio.output_dir / "norm-pass.wav",
@@ -145,7 +135,7 @@ class ApiErrorHandlingTest(unittest.TestCase):
             duration_seconds=1.0,
             inference_seconds=0.2,
             chunk_count=1,
-            reference_text_used=False,
+            reference_text_used=True,
             seed=None,
             notes=[],
         )
@@ -153,15 +143,12 @@ class ApiErrorHandlingTest(unittest.TestCase):
         try:
             with patch.object(studio, "get_engine_card", return_value=engine_card):
                 with patch.object(studio, "resolve_model_spec", return_value={"key": "default", "label": "Default"}):
-                    with patch.object(studio, "_synthesize_with_f5", return_value=result) as synth_mock:
+                    with patch.object(studio, "_synthesize_with_gwen", return_value=result) as synth_mock:
                         output = studio.synthesize(
-                            engine_id="f5",
                             text="Xin chào\n- hôm nay sale lớn",
                             reference_audio=reference_path,
-                            reference_text="",
+                            reference_text="xin chao",
                             speed=1.0,
-                            remove_silence=False,
-                            seed=None,
                             model_key="default",
                             custom_model="",
                         )
