@@ -1483,9 +1483,9 @@
     lastSubmissionText = textInput.value.trim();
     activeRequestController = new AbortController();
     setStudioBusyState(true);
-    createPendingHistoryItem(lastSubmissionText);
 
     try {
+      createPendingHistoryItem(lastSubmissionText);
       const formData = new FormData(this);
       formData.set('async', '1');
       const response = await fetch('/api/tts/generate', {
