@@ -8,6 +8,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
+from datetime import datetime
 import mimetypes
 from pathlib import Path
 from threading import Lock
@@ -78,6 +79,11 @@ SETUP_STEPS = [
 
 ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
 JOB_RETENTION_SECONDS = 60 * 60
+DATA_DIR = ROOT / "webapp" / "data"
+USER_SETTINGS_PATH = DATA_DIR / "user_settings.json"
+TTS_HISTORY_PATH = DATA_DIR / "tts_history.json"
+MAX_HISTORY_ITEMS = 50
+_storage_lock = Lock()
 
 
 @dataclass(slots=True)
@@ -319,7 +325,89 @@ def _audio_url_for_filename(filename: str) -> str:
     return f"/outputs/{quote(filename)}"
 
 
-def _build_synthesis_payload(result, *, preset_voice: Any | None = None) -> dict[str, Any]:
+def _ensure_data_dir() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _read_json_file(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (json.JSONDecodeError, OSError):
+        app.logger.warning("Failed to read JSON file: %s", path)
+        return default
+
+
+def _write_json_file(path: Path, data: Any) -> None:
+    _ensure_data_dir()
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+
+
+def _sanitize_pronunciation_rules(raw_rules: Any) -> list[dict[str, str]]:
+    rules: list[dict[str, str]] = []
+    if not isinstance(raw_rules, list):
+        return rules
+    for item in raw_rules:
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("from", "")).strip()
+        target = str(item.get("to", "")).strip()
+        if source and target:
+            rules.append({"from": source, "to": target})
+    return rules
+
+
+def _load_user_settings() -> dict[str, Any]:
+    with _storage_lock:
+        payload = _read_json_file(
+            USER_SETTINGS_PATH,
+            {
+                "pronunciation_rules": [],
+                "last_text": "",
+            },
+        )
+    if not isinstance(payload, dict):
+        payload = {}
+    return {
+        "pronunciation_rules": _sanitize_pronunciation_rules(payload.get("pronunciation_rules")),
+        "last_text": str(payload.get("last_text", "") or ""),
+    }
+
+
+def _save_user_settings(raw_payload: Any) -> dict[str, Any]:
+    if not isinstance(raw_payload, dict):
+        raise ValueError("Payload settings không hợp lệ.")
+    sanitized = {
+        "pronunciation_rules": _sanitize_pronunciation_rules(raw_payload.get("pronunciation_rules")),
+        "last_text": str(raw_payload.get("last_text", "") or ""),
+    }
+    with _storage_lock:
+        _write_json_file(USER_SETTINGS_PATH, sanitized)
+    return sanitized
+
+
+def _load_tts_history() -> list[dict[str, Any]]:
+    with _storage_lock:
+        payload = _read_json_file(TTS_HISTORY_PATH, [])
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _append_tts_history(entry: dict[str, Any]) -> None:
+    with _storage_lock:
+        history = _read_json_file(TTS_HISTORY_PATH, [])
+        if not isinstance(history, list):
+            history = []
+        history = [item for item in history if isinstance(item, dict)]
+        history.insert(0, entry)
+        _write_json_file(TTS_HISTORY_PATH, history[:MAX_HISTORY_ITEMS])
+
+
+def _build_synthesis_payload(result, *, preset_voice: Any | None = None, input_text: str = "") -> dict[str, Any]:
     notes = list(result.notes)
     if preset_voice is not None:
         notes.insert(0, f"Đã dùng preset voice Gwen: {preset_voice.name}.")
@@ -340,6 +428,7 @@ def _build_synthesis_payload(result, *, preset_voice: Any | None = None) -> dict
         "chunk_count": result.chunk_count,
         "reference_text_used": result.reference_text_used,
         "seed": result.seed,
+        "input_text": input_text,
         "notes": notes,
         "storage_path": str(result.output_path.relative_to(ROOT)),
     }
@@ -445,7 +534,24 @@ def _execute_synthesis_submission(submission: SynthesisSubmission) -> dict[str, 
         gwen_generation_config=submission.gwen_generation_config,
         pronunciation_overrides=submission.pronunciation_overrides,
     )
-    return _build_synthesis_payload(result, preset_voice=submission.preset_voice)
+    payload = _build_synthesis_payload(result, preset_voice=submission.preset_voice, input_text=submission.text)
+    history_entry = {
+        "id": uuid.uuid4().hex,
+        "input_text": submission.text,
+        "engine": payload.get("engine", ""),
+        "voice_id": payload.get("preset_voice_id", ""),
+        "voice_label": payload.get("preset_voice_label") or payload.get("engine_label", ""),
+        "model_label": payload.get("model_label", ""),
+        "audio_url": payload.get("audio_url", ""),
+        "download_name": payload.get("download_name", ""),
+        "duration_seconds": payload.get("duration_seconds", 0),
+        "inference_seconds": payload.get("inference_seconds", 0),
+        "sample_rate": payload.get("sample_rate", 0),
+        "chunk_count": payload.get("chunk_count", 0),
+        "created_at": datetime.now().astimezone().isoformat(),
+    }
+    _append_tts_history(history_entry)
+    return payload
 
 
 def _should_use_async_generation() -> bool:
@@ -829,6 +935,29 @@ def api_pronunciation_export():
         mimetype="application/json",
         headers={"Content-Disposition": "attachment; filename=pronunciation_rules.json"},
     )
+
+
+@app.route("/api/settings/load")
+def api_settings_load():
+    return jsonify({"ok": True, **_load_user_settings()})
+
+
+@app.route("/api/settings/save", methods=["POST"])
+def api_settings_save():
+    data = request.get_json(silent=True)
+    try:
+        saved = _save_user_settings(data)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except OSError as exc:
+        return jsonify({"ok": False, "error": f"Không thể lưu settings: {exc}"}), 500
+    return jsonify({"ok": True, **saved})
+
+
+@app.route("/api/history")
+def api_history():
+    history = _load_tts_history()
+    return jsonify({"ok": True, "items": history[:MAX_HISTORY_ITEMS]})
 
 
 @app.route("/outputs/<path:filename>")

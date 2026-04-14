@@ -436,6 +436,8 @@
   let activeTranscriptionController = null;
   let activeStudioModal = null;
   let lastSubmissionText = '';
+  let saveSettingsTimer = null;
+  let saveSettingsInFlight = null;
   let gwenVoiceMode = ENGINE_ID === 'gwen' && VOICE_PRESETS.length ? 'preset' : 'custom';
 
   function closeThemedSelectMenus(except = null) {
@@ -756,6 +758,83 @@
       textProgressBar.classList.remove('is-warning', 'is-danger');
       if (pct > 95) textProgressBar.classList.add('is-danger');
       else if (pct > 80) textProgressBar.classList.add('is-warning');
+    }
+  }
+
+  function debounceSaveSettings(delayMs = 500) {
+    if (saveSettingsTimer) {
+      window.clearTimeout(saveSettingsTimer);
+    }
+    saveSettingsTimer = window.setTimeout(() => {
+      saveSettingsTimer = null;
+      saveSettingsInFlight = saveCurrentSettings().finally(() => {
+        saveSettingsInFlight = null;
+      });
+    }, delayMs);
+  }
+
+  async function waitForPendingSettingsSave() {
+    if (saveSettingsTimer) {
+      window.clearTimeout(saveSettingsTimer);
+      saveSettingsTimer = null;
+      saveSettingsInFlight = saveCurrentSettings().finally(() => {
+        saveSettingsInFlight = null;
+      });
+    }
+    if (saveSettingsInFlight) {
+      await saveSettingsInFlight;
+    }
+  }
+
+  async function saveCurrentSettings() {
+    try {
+      await fetch('/api/settings/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pronunciation_rules: collectPronunciationRules(),
+          last_text: (textInput && textInput.value) ? textInput.value : '',
+        }),
+      });
+    } catch (error) {
+      console.warn('Không lưu được settings người dùng.', error);
+    }
+  }
+
+  async function loadSavedSettings() {
+    try {
+      const response = await fetch('/api/settings/load', { method: 'GET', cache: 'no-store' });
+      const payload = await parseApiResponse(response);
+      if (!response.ok || !payload.ok) {
+        return;
+      }
+      if (Array.isArray(payload.pronunciation_rules)) {
+        populatePronunciationRules(payload.pronunciation_rules);
+      }
+      if (typeof payload.last_text === 'string' && payload.last_text.trim()) {
+        textInput.value = payload.last_text;
+        lastSubmissionText = payload.last_text;
+      }
+      updateCount();
+    } catch (error) {
+      console.warn('Không tải được settings đã lưu.', error);
+    }
+  }
+
+  async function loadHistoryFromServer() {
+    try {
+      const response = await fetch('/api/history', { method: 'GET', cache: 'no-store' });
+      const payload = await parseApiResponse(response);
+      if (!response.ok || !payload.ok || !Array.isArray(payload.items)) {
+        return;
+      }
+      historyList.innerHTML = '';
+      payload.items.forEach((itemPayload) => {
+        historyList.appendChild(buildHistoryItemElement(itemPayload));
+      });
+      applyHistoryFilter();
+    } catch (error) {
+      console.warn('Không tải được lịch sử đã lưu.', error);
     }
   }
 
@@ -1445,33 +1524,55 @@
   function buildHistoryItemElement(payload) {
     const item = document.createElement('div');
     item.className = 'history-item';
-    const previewText = summarizeHistoryText(lastSubmissionText);
-    const modelMeta = payload.model_label ? ` · ${payload.model_label}` : '';
-    const voiceMeta = payload.preset_voice_label ? payload.preset_voice_label : payload.engine_label;
-    item.dataset.searchText = [payload.download_name, previewText, voiceMeta, payload.model_label || '']
+    const inputText = (payload.input_text || '').trim();
+    const previewText = summarizeHistoryText(inputText || lastSubmissionText);
+    const modelLabel = payload.model_label || '';
+    const modelMeta = modelLabel ? ` · ${modelLabel}` : '';
+    const voiceMeta = payload.preset_voice_label || payload.voice_label || payload.engine_label || payload.engine || 'Unknown';
+    const downloadName = payload.download_name || '';
+    const sampleRate = Number(payload.sample_rate || 0);
+    const durationSeconds = Number(payload.duration_seconds || 0);
+    const chunkCount = Number(payload.chunk_count || 0);
+    item.dataset.inputText = inputText;
+    item.dataset.searchText = [downloadName, previewText, voiceMeta, modelLabel]
       .join(' ')
       .trim();
+    item.title = 'Click để hiện lại văn bản';
+    item.style.cursor = 'pointer';
     item.innerHTML = `
       <div class="history-status-row">
         <span class="history-status-badge">Thành công</span>
-        <span class="history-time">${payload.duration_seconds.toFixed(2)}s</span>
+        <span class="history-time">${durationSeconds.toFixed(2)}s</span>
       </div>
       <div class="history-top">
         <strong>${voiceMeta}</strong>
-        <span>${payload.sample_rate} Hz</span>
+        <span>${sampleRate} Hz</span>
       </div>
-      <div class="history-file">${payload.download_name}</div>
+      <div class="history-file">${downloadName}</div>
       <div class="history-preview">${previewText || 'Không có preview văn bản.'}</div>
-      <div class="history-meta">${payload.sample_rate} Hz · ${payload.chunk_count} chunk${modelMeta}</div>
+      <div class="history-meta">${sampleRate} Hz · ${chunkCount} chunk${modelMeta}</div>
       <div class="history-actions-row">
         <audio controls class="history-player" src="${payload.audio_url}"></audio>
-        <a class="history-download" href="${payload.audio_url}" download="${payload.download_name}" aria-label="Tải audio">
+        <a class="history-download" href="${payload.audio_url}" download="${downloadName}" aria-label="Tải audio">
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" class="size-4">
             <path d="M7.50005 1.04999C7.74858 1.04999 7.95005 1.25146 7.95005 1.49999V8.41359L10.1819 6.18179C10.3576 6.00605 10.6425 6.00605 10.8182 6.18179C10.994 6.35753 10.994 6.64245 10.8182 6.81819L7.81825 9.81819C7.64251 9.99392 7.35759 9.99392 7.18185 9.81819L4.18185 6.81819C4.00611 6.64245 4.00611 6.35753 4.18185 6.18179C4.35759 6.00605 4.64251 6.00605 4.81825 6.18179L7.05005 8.41359V1.49999C7.05005 1.25146 7.25152 1.04999 7.50005 1.04999ZM2.5 10C2.77614 10 3 10.2239 3 10.5V12C3 12.5539 3.44565 13 3.99635 13H11.0012C11.5529 13 12 12.5528 12 12V10.5C12 10.2239 12.2239 10 12.5 10C12.7761 10 13 10.2239 13 10.5V12C13 13.1041 12.1062 14 11.0012 14H3.99635C2.89019 14 2 13.103 2 12V10.5C2 10.2239 2.22386 10 2.5 10Z" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"></path>
           </svg>
         </a>
       </div>
     `;
+    item.addEventListener('click', (event) => {
+      if (event.target.closest('.history-actions-row')) {
+        return;
+      }
+      const originalText = (item.dataset.inputText || '').trim();
+      if (!originalText) {
+        return;
+      }
+      textInput.value = originalText;
+      lastSubmissionText = originalText;
+      updateCount();
+      textInput.focus();
+    });
     return item;
   }
 
@@ -1555,6 +1656,7 @@
   }
 
   textInput.addEventListener('input', updateCount);
+  textInput.addEventListener('input', () => debounceSaveSettings());
   if (speedRange) {
     speedRange.addEventListener('input', () => {
       updateSpeed();
@@ -1581,16 +1683,23 @@
   if (addPronunciationRuleBtn) {
     addPronunciationRuleBtn.addEventListener('click', () => {
       pronunciationRules.appendChild(createPronunciationRuleRow());
+      debounceSaveSettings();
     });
   }
   if (clearPronunciationRulesBtn) {
-    clearPronunciationRulesBtn.addEventListener('click', resetPronunciationRules);
+    clearPronunciationRulesBtn.addEventListener('click', () => {
+      resetPronunciationRules();
+      debounceSaveSettings();
+    });
   }
   if (uploadPronunciationBtn) {
     uploadPronunciationBtn.addEventListener('click', uploadPronunciationFile);
   }
   if (pronunciationFileInput) {
-    pronunciationFileInput.addEventListener('change', handlePronunciationFileSelected);
+    pronunciationFileInput.addEventListener('change', async (event) => {
+      await handlePronunciationFileSelected(event);
+      debounceSaveSettings();
+    });
   }
   if (downloadPronunciationBtn) {
     downloadPronunciationBtn.addEventListener('click', downloadPronunciationFile);
@@ -1600,6 +1709,13 @@
       renderPresetVoiceDetail();
       syncReferenceTextUi();
       syncThemedSelect(presetVoiceSelect);
+    });
+  }
+  if (pronunciationRules) {
+    pronunciationRules.addEventListener('input', (event) => {
+      if (event.target.closest('.pronunciation-rule-row')) {
+        debounceSaveSettings();
+      }
     });
   }
   if (presetVoicePlayer && voicePreviewAvatar) {
@@ -1647,11 +1763,13 @@
         const completedPayload = await pollGenerationJob(payload.job_id, activeRequestController.signal);
         renderResult(completedPayload);
         replacePendingWithResult(completedPayload);
+        debounceSaveSettings(200);
         return;
       }
 
       renderResult(payload);
       replacePendingWithResult(payload);
+      debounceSaveSettings(200);
     } catch (error) {
       if (error && error.name === 'AbortError') {
         replacePendingWithError('Đã huỷ. Job có thể vẫn hoàn tất trong nền.');
@@ -1676,6 +1794,11 @@
   syncResultPlayerUi();
   applyHistoryFilter();
   setStudioBusyState(false);
+  loadSavedSettings();
+  loadHistoryFromServer();
+  window.addEventListener('beforeunload', () => {
+    waitForPendingSettingsSave();
+  });
   window.addEventListener('resize', () => {
     closeThemedSelectMenus();
   });
