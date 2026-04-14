@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +14,7 @@ from threading import Lock
 from typing import Any
 from urllib.parse import quote
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_from_directory, url_for
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 try:
@@ -715,6 +717,117 @@ def api_tts_job_status(job_id: str):
             "status": status,
             "error": snapshot["error"] or snapshot["message"],
         }
+    )
+
+
+ALLOWED_PRONUNCIATION_EXTENSIONS = {".json", ".txt"}
+MAX_PRONUNCIATION_FILE_BYTES = 512 * 1024
+
+
+def _parse_pronunciation_file_content(raw_bytes: bytes, filename: str) -> list[dict[str, str]]:
+    """Parse uploaded pronunciation file into list of {from, to} dicts."""
+    extension = Path(filename).suffix.lower()
+    text = raw_bytes.decode("utf-8", errors="replace").strip()
+    if not text:
+        raise ValueError("File rỗng, không chứa cặp phát âm nào.")
+
+    if extension == ".json":
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"File JSON không hợp lệ: {exc}") from exc
+
+        if isinstance(data, dict):
+            return [{"from": str(k).strip(), "to": str(v).strip()} for k, v in data.items() if str(k).strip() and str(v).strip()]
+        if isinstance(data, list):
+            rules: list[dict[str, str]] = []
+            for index, item in enumerate(data):
+                if not isinstance(item, dict):
+                    raise ValueError(f"Phần tử {index + 1} trong JSON array phải là object.")
+                source = str(item.get("from", "")).strip()
+                target = str(item.get("to", "")).strip()
+                if not source and not target:
+                    continue
+                if not source or not target:
+                    raise ValueError(f"Dòng {index + 1}: thiếu 'from' hoặc 'to'.")
+                rules.append({"from": source, "to": target})
+            return rules
+        raise ValueError("JSON phải là array [{from, to}, ...] hoặc object {key: value, ...}.")
+
+    # TXT format: each line is "source -> target" or "source|target" or "source=target" or "source\ttarget"
+    rules = []
+    for line_num, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        pair = None
+        for separator in (" -> ", "->" , "\t", "|", "="):
+            if separator in line:
+                parts = line.split(separator, 1)
+                if len(parts) == 2:
+                    pair = (parts[0].strip(), parts[1].strip())
+                    break
+        if pair is None:
+            raise ValueError(f"Dòng {line_num}: không tìm thấy dấu phân cách (->  |  =  tab). Định dạng: 'chữ gốc -> cách đọc'.")
+        source, target = pair
+        if not source or not target:
+            raise ValueError(f"Dòng {line_num}: thiếu chữ gốc hoặc cách đọc.")
+        rules.append({"from": source, "to": target})
+    return rules
+
+
+@app.route("/api/pronunciation/upload", methods=["POST"])
+def api_pronunciation_upload():
+    """Upload a .json or .txt file containing pronunciation overrides."""
+    upload = request.files.get("pronunciation_file")
+    if not upload or not upload.filename:
+        return jsonify({"ok": False, "error": "Cần upload file cài đặt phát âm (.json hoặc .txt)."}), 400
+
+    extension = Path(upload.filename).suffix.lower()
+    if extension not in ALLOWED_PRONUNCIATION_EXTENSIONS:
+        return jsonify({"ok": False, "error": "Chỉ hỗ trợ file .json hoặc .txt."}), 400
+
+    raw_bytes = upload.read()
+    if len(raw_bytes) > MAX_PRONUNCIATION_FILE_BYTES:
+        return jsonify({"ok": False, "error": f"File quá lớn. Giới hạn {MAX_PRONUNCIATION_FILE_BYTES // 1024} KB."}), 400
+
+    try:
+        rules = _parse_pronunciation_file_content(raw_bytes, upload.filename)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    if not rules:
+        return jsonify({"ok": False, "error": "File không chứa cặp phát âm hợp lệ nào."}), 400
+
+    app.logger.info("Parsed %d pronunciation rules from uploaded file: %s", len(rules), upload.filename)
+    return jsonify({"ok": True, "rules": rules, "count": len(rules), "filename": upload.filename})
+
+
+@app.route("/api/pronunciation/export", methods=["POST"])
+def api_pronunciation_export():
+    """Export current pronunciation rules as a downloadable JSON file."""
+    try:
+        data = request.get_json(silent=True)
+    except Exception:
+        data = None
+
+    if not data or not isinstance(data.get("rules"), list):
+        return jsonify({"ok": False, "error": "Cần gửi JSON body chứa key 'rules'."}), 400
+
+    rules = []
+    for item in data["rules"]:
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("from", "")).strip()
+        target = str(item.get("to", "")).strip()
+        if source and target:
+            rules.append({"from": source, "to": target})
+
+    content = json.dumps(rules, ensure_ascii=False, indent=2)
+    return Response(
+        content,
+        mimetype="application/json",
+        headers={"Content-Disposition": "attachment; filename=pronunciation_rules.json"},
     )
 
 

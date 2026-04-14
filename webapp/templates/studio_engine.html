@@ -325,7 +325,10 @@
 
                 <div class="form-actions pronunciation-actions">
                   <button class="btn btn-outline" type="button" id="addPronunciationRuleBtn"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>Thêm cặp đọc</button>
+                  <button class="btn btn-outline" type="button" id="uploadPronunciationBtn"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Upload file</button>
+                  <button class="btn btn-outline" type="button" id="downloadPronunciationBtn"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>Tải xuống</button>
                   <button class="btn btn-outline" type="button" id="clearPronunciationRulesBtn"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>Xóa hết</button>
+                  <input type="file" id="pronunciationFileInput" accept=".json,.txt" class="hidden" />
                 </div>
               </div>
             </div>
@@ -409,6 +412,9 @@
   const resetGwenSettingsBtn = document.getElementById('resetGwenSettingsBtn');
   const pronunciationRules = document.getElementById('pronunciationRules');
   const addPronunciationRuleBtn = document.getElementById('addPronunciationRuleBtn');
+  const uploadPronunciationBtn = document.getElementById('uploadPronunciationBtn');
+  const downloadPronunciationBtn = document.getElementById('downloadPronunciationBtn');
+  const pronunciationFileInput = document.getElementById('pronunciationFileInput');
   const clearPronunciationRulesBtn = document.getElementById('clearPronunciationRulesBtn');
   const settingsTabBtn = document.getElementById('settingsTabBtn');
   const historyTabBtn = document.getElementById('historyTabBtn');
@@ -823,6 +829,104 @@
       }
     });
     return row;
+  }
+
+  function collectPronunciationRules() {
+    if (!pronunciationRules) {
+      return [];
+    }
+    const rows = Array.from(pronunciationRules.querySelectorAll('.pronunciation-rule-row'));
+    const rules = [];
+    for (const row of rows) {
+      const sourceInput = row.querySelector('input[name="pronunciation_from"]');
+      const targetInput = row.querySelector('input[name="pronunciation_to"]');
+      const source = (sourceInput && sourceInput.value || '').trim();
+      const target = (targetInput && targetInput.value || '').trim();
+      if (source && target) {
+        rules.push({ from: source, to: target });
+      }
+    }
+    return rules;
+  }
+
+  function populatePronunciationRules(rules) {
+    if (!pronunciationRules) {
+      return;
+    }
+    pronunciationRules.innerHTML = '';
+    if (!rules || !rules.length) {
+      pronunciationRules.appendChild(createPronunciationRuleRow());
+      return;
+    }
+    for (const rule of rules) {
+      pronunciationRules.appendChild(createPronunciationRuleRow(rule.from || '', rule.to || ''));
+    }
+  }
+
+  async function uploadPronunciationFile() {
+    if (!pronunciationFileInput) {
+      return;
+    }
+    pronunciationFileInput.value = '';
+    pronunciationFileInput.click();
+  }
+
+  async function handlePronunciationFileSelected(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set('pronunciation_file', file);
+
+    try {
+      const response = await fetch('/api/pronunciation/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        alert(payload.error || 'Không thể đọc file phát âm.');
+        return;
+      }
+      populatePronunciationRules(payload.rules);
+      alert(`Đã tải ${payload.count} cặp phát âm từ file "${payload.filename}".`);
+    } catch (error) {
+      alert('Lỗi khi upload file phát âm: ' + (error.message || error));
+    }
+  }
+
+  async function downloadPronunciationFile() {
+    const rules = collectPronunciationRules();
+    if (!rules.length) {
+      alert('Chưa có cặp phát âm nào để tải xuống.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/pronunciation/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        alert(payload.error || 'Không thể xuất file phát âm.');
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'pronunciation_rules.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert('Lỗi khi tải xuống file phát âm: ' + (error.message || error));
+    }
   }
 
   function resetPronunciationRules() {
@@ -1253,6 +1357,38 @@
       : '<path d="M7 5a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1zm10 0a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0V6a1 1 0 0 1 1-1z"></path>';
   }
 
+  function scheduleResultAutoplay() {
+    if (autoPlayBtn && autoPlayBtn.getAttribute('aria-pressed') === 'false') {
+      return;
+    }
+    if (!resultPlayer) {
+      return;
+    }
+
+    const tryPlay = () => {
+      resultPlayer.play().catch(() => {
+        const prevMuted = resultPlayer.muted;
+        resultPlayer.muted = true;
+        const p = resultPlayer.play();
+        if (p !== undefined) {
+          p.then(() => {
+            resultPlayer.muted = prevMuted;
+          }).catch(() => {
+            resultPlayer.muted = prevMuted;
+          });
+        } else {
+          resultPlayer.muted = prevMuted;
+        }
+      });
+    };
+
+    if (resultPlayer.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      tryPlay();
+    } else {
+      resultPlayer.addEventListener('canplay', tryPlay, { once: true });
+    }
+  }
+
   function syncResultPlayerUi() {
     if (!resultPlayer) {
       return;
@@ -1377,9 +1513,7 @@
     downloadLink.href = payload.audio_url;
     downloadLink.setAttribute('download', latestAudioName);
 
-    if (!autoPlayBtn || autoPlayBtn.getAttribute('aria-pressed') !== 'false') {
-      resultPlayer.play().catch(() => {});
-    }
+    scheduleResultAutoplay();
   }
 
   if (settingsTabBtn && historyTabBtn) {
@@ -1451,6 +1585,15 @@
   }
   if (clearPronunciationRulesBtn) {
     clearPronunciationRulesBtn.addEventListener('click', resetPronunciationRules);
+  }
+  if (uploadPronunciationBtn) {
+    uploadPronunciationBtn.addEventListener('click', uploadPronunciationFile);
+  }
+  if (pronunciationFileInput) {
+    pronunciationFileInput.addEventListener('change', handlePronunciationFileSelected);
+  }
+  if (downloadPronunciationBtn) {
+    downloadPronunciationBtn.addEventListener('click', downloadPronunciationFile);
   }
   if (presetVoiceSelect) {
     presetVoiceSelect.addEventListener('change', () => {
